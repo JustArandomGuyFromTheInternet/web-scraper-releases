@@ -1,0 +1,737 @@
+// Simple renderer.js - Fixed version
+console.log('✅ renderer.js loaded');
+
+// App state
+const app = {
+    elements: {},
+    state: { links: [], isRunning: false },
+
+    addLog: function (type, message) {
+        const logViewer = document.getElementById("logViewer");
+        if (!logViewer) return;
+
+        const timestamp = new Date().toLocaleTimeString();
+        const log = document.createElement("div");
+        log.className = `log-entry log-${type}`;
+        log.innerHTML = `<span class="timestamp">[${timestamp}]</span> ${message}`;
+        logViewer.appendChild(log);
+        logViewer.scrollTop = logViewer.scrollHeight;
+    },
+
+    clearLog: function () {
+        const logViewer = document.getElementById("logViewer");
+        if (logViewer) {
+            logViewer.innerHTML = '';
+            this.addLog('info', 'Log cleared');
+        }
+    },
+
+    parseLinks: function () {
+        const linksInput = document.getElementById("linksInput");
+        if (!linksInput) return;
+
+        const input = linksInput.value;
+        this.state.links = [];
+
+        // Method 2: Split by whitespace/commas/semicolons (More robust for lists)
+        // This avoids regex over-matching inside complex URLs or text
+        const candidates = input.split(/[\s,;]+/);
+
+        const cleaned = candidates
+            .map(item => item.trim())
+            .filter(item => item.match(/^https?:\/\//i)) // Must start with http/https
+            .map(url => {
+                // Remove common trailing punctuation
+                let cleanUrl = url.replace(/[.,;:!?]+$/, '').trim();
+                // Remove trailing slashes
+                cleanUrl = cleanUrl.replace(/\/+$/, '');
+                return cleanUrl;
+            })
+            .filter(url => {
+                // Filter out invalid URLs
+                if (!url || url.length < 10) return false;
+                if (!url.includes('.')) return false;
+                return true;
+            });
+
+        // Remove duplicates
+        this.state.links = [...new Set(cleaned)];
+
+        const statusDiv = document.getElementById("linksStatus");
+        if (statusDiv) {
+            if (this.state.links.length > 0) {
+                statusDiv.innerHTML = `<div class="info-box">✅ Found <strong>${this.state.links.length}</strong> valid links</div>`;
+                this.addLog("success", `Found ${this.state.links.length} valid links`);
+            } else {
+                statusDiv.innerHTML = `<div class="warning-box">⚠️ No valid links found</div>`;
+                this.addLog("warning", "No valid links found");
+            }
+        }
+    },
+
+    startVisualScraping: async function () {
+        const visualBtn = document.getElementById('visualBtn');
+        const stopBtn = document.getElementById('stopBtn');
+
+        if (this.state.links.length === 0) {
+            alert("Please add some links first");
+            return;
+        }
+
+        if (visualBtn) {
+            visualBtn.disabled = true;
+            visualBtn.textContent = "⏳ Processing...";
+        }
+        if (stopBtn) stopBtn.disabled = false;
+
+        this.state.isRunning = true;
+        this.addLog("info", `Starting visual scraping process...`);
+
+        try {
+            // Check which tab is active
+            const sheetsTab = document.querySelector('[data-target="sheets"]');
+            const isSheetsMode = sheetsTab?.classList.contains('active');
+
+            const payload = {
+                links: this.state.links,
+                savePath: document.getElementById("savePath")?.value || "./out_new",
+                fileName: document.getElementById("fileName")?.value || "summaries.csv",
+                visualMode: true // Always use visual mode for Stories/Reels support
+            };
+
+            // Add Sheets info if in Sheets mode
+            if (isSheetsMode) {
+                const sheetsUrl = document.getElementById("sheetsUrl")?.value;
+                console.log('DEBUG: Sheets URL:', sheetsUrl);
+                if (sheetsUrl) {
+                    const match = sheetsUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+                    console.log('DEBUG: Match result:', match);
+                    if (match) {
+                        payload.spreadsheetId = match[1];
+                        payload.sheetName = document.getElementById("sheetName")?.value || 'Summaries';
+                        payload.smartTableSync = document.getElementById("smartTableSync")?.checked || false;
+                        console.log('DEBUG: Payload with Sheets:', payload);
+                        this.addLog("info", `Using Google Sheets: ${payload.spreadsheetId}`);
+                    } else {
+                        this.addLog("warning", "Invalid Google Sheets URL");
+                    }
+                } else {
+                    this.addLog("warning", "No Google Sheets URL provided");
+                }
+            } else {
+                console.log('DEBUG: CSV mode active, not using Sheets');
+            }
+
+            await window.electronAPI.runScrape(payload);
+            // Reset buttons after successful completion
+            this.resetButtons();
+            this.addLog("success", "✅ הסריקה הושלמה בהצלחה!");
+        } catch (error) {
+            this.addLog("error", `Scraping error: ${error.message}`);
+            this.resetButtons();
+        }
+    },
+
+    stopScraping: function () {
+        console.log('Stop button clicked!');
+        this.state.isRunning = false;
+        this.addLog("warning", "Stopping process...");
+        // Send stop signal to main process (works for both scraping and repair)
+        window.electronAPI.send('stop-scraping');
+        // Reset buttons after a short delay to allow process to stop
+        setTimeout(() => {
+            this.resetButtons();
+        }, 500);
+    },
+
+
+    resetButtons: function () {
+        const visualBtn = document.getElementById("visualBtn");
+        const stopBtn = document.getElementById("stopBtn");
+
+        if (visualBtn) {
+            visualBtn.disabled = false;
+            visualBtn.textContent = "🚀 START SCRAPING";
+        }
+        if (stopBtn) stopBtn.disabled = true;
+
+        this.state.isRunning = false;
+    },
+
+    setupTabs: function () {
+        const tabs = document.querySelectorAll('.tab');
+        const tabContents = document.querySelectorAll('.tab-content');
+
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                console.log('Tab clicked:', tab.dataset.target);
+                const target = tab.dataset.target;
+
+                // Remove active from all
+                tabs.forEach(t => t.classList.remove('active'));
+                tabContents.forEach(tc => tc.classList.remove('active'));
+
+                // Add active to clicked
+                tab.classList.add('active');
+                const targetContent = document.getElementById(`${target}-content`);
+                if (targetContent) {
+                    targetContent.classList.add('active');
+                }
+            });
+        });
+    },
+
+    setupEventListeners: function () {
+        console.log('Setting up event listeners...');
+
+        // Tab switching
+        this.setupTabs();
+
+
+        // Stop button
+        const stopBtn = document.getElementById("stopBtn");
+        if (stopBtn) {
+            stopBtn.addEventListener("click", () => this.stopScraping());
+            console.log('✅ Stop button listener added');
+        } else {
+            console.error('❌ Stop button not found!');
+        }
+
+        // Clear log button
+        const clearLogBtn = document.getElementById("clearLogBtn");
+        if (clearLogBtn) {
+            clearLogBtn.addEventListener("click", () => app.clearLog());
+            console.log('✅ Clear log button listener added');
+        } else {
+            console.error('❌ Clear log button not found!');
+        }
+
+        // Visual Scrape button
+        const visualBtn = document.getElementById("visualBtn");
+        if (visualBtn) {
+            visualBtn.addEventListener("click", () => this.startVisualScraping());
+            console.log('✅ Visual Scrape button listener added');
+        }
+
+        // Links input
+        const linksInput = document.getElementById("linksInput");
+        if (linksInput) {
+            linksInput.addEventListener("input", () => {
+                setTimeout(() => this.parseLinks(), 300);
+            });
+            console.log('✅ Links input listener added');
+        }
+
+        // Settings button
+        const settingsBtn = document.getElementById('settingsBtn');
+        const settingsModal = document.getElementById('settingsModal');
+        const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+        const cancelSettingsBtn = document.getElementById('cancelSettingsBtn');
+        const saveSettingsBtn = document.getElementById('saveSettingsBtn');
+        const apiKeyInput = document.getElementById('apiKeyInput');
+        const apiKeyStatus = document.getElementById('apiKeyStatus');
+        const repairStatus = document.getElementById('repairStatus');
+
+        // Column Checkboxes
+        const colCheckboxes = {
+            sender: document.getElementById('colSender'),
+            group: document.getElementById('colGroup'),
+            date: document.getElementById('colDate'),
+            content: document.getElementById('colContent'),
+            summary: document.getElementById('colSummary'),
+            likes: document.getElementById('colLikes'),
+            comments: document.getElementById('colComments'),
+            shares: document.getElementById('colShares')
+        };
+
+        if (settingsBtn) {
+            settingsBtn.onclick = async () => {
+                console.log('⚙️ Settings clicked');
+                if (settingsModal) settingsModal.style.display = 'flex';
+
+                // Load current settings
+                if (window.electronAPI && window.electronAPI.getSettings) {
+                    try {
+                        const settings = await window.electronAPI.getSettings();
+                        if (settings.apiKey) {
+                            apiKeyInput.value = settings.apiKey;
+                            apiKeyStatus.className = 'status-badge status-connected';
+                            apiKeyStatus.textContent = 'Configured';
+                        }
+                        // Load Column Preferences
+                        if (settings.columns) {
+                            for (const [key, checkbox] of Object.entries(colCheckboxes)) {
+                                if (checkbox && settings.columns[key] !== undefined) {
+                                    checkbox.checked = settings.columns[key];
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Failed to load settings:', error);
+                    }
+                }
+            };
+        }
+
+        if (closeSettingsBtn) {
+            closeSettingsBtn.onclick = () => {
+                if (settingsModal) settingsModal.style.display = 'none';
+            };
+        }
+
+        if (cancelSettingsBtn) {
+            cancelSettingsBtn.onclick = () => {
+                if (settingsModal) settingsModal.style.display = 'none';
+            };
+        }
+
+        if (saveSettingsBtn) {
+            saveSettingsBtn.onclick = async () => {
+                const apiKey = apiKeyInput.value.trim();
+
+                // Gather column preferences
+                const columns = {};
+                for (const [key, checkbox] of Object.entries(colCheckboxes)) {
+                    if (checkbox) columns[key] = checkbox.checked;
+                }
+
+                if (window.electronAPI && window.electronAPI.saveSettings) {
+                    try {
+                        await window.electronAPI.saveSettings({ apiKey, columns });
+                        this.addLog('success', 'Settings saved successfully');
+                        if (settingsModal) settingsModal.style.display = 'none';
+
+                        if (apiKeyStatus && apiKey) {
+                            apiKeyStatus.className = 'status-badge status-connected';
+                            apiKeyStatus.textContent = 'Configured';
+                        }
+                    } catch (error) {
+                        this.addLog('error', `Failed to save settings: ${error.message}`);
+                    }
+                }
+            };
+        }
+
+        // Helper function for repair operations
+        const performRepair = async (field, buttonId) => {
+            const sheetsUrl = document.getElementById('sheetsUrl')?.value;
+            const sheetName = document.getElementById('sheetName')?.value || 'גיליון1';
+            const repairStatus = document.getElementById('repairStatus');
+            const button = document.getElementById(buttonId);
+            const stopBtn = document.getElementById('stopBtn');
+
+            let spreadsheetId = null;
+            if (sheetsUrl) {
+                const match = sheetsUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+                if (match) spreadsheetId = match[1];
+            }
+
+            if (!spreadsheetId) {
+                alert('Please enter a valid Google Sheets URL in the main window first.');
+                return;
+            }
+
+            if (button) button.disabled = true;
+            if (stopBtn) stopBtn.disabled = false; // Enable stop button
+            this.state.isRunning = true; // Mark as running
+
+            if (repairStatus) {
+                repairStatus.textContent = `Starting repair for ${field}...`;
+                repairStatus.style.color = '#666';
+            }
+            this.addLog('info', `Starting repair for ${field}...`);
+
+            try {
+                const result = await window.electronAPI.repairField({ spreadsheetId, sheetName, field });
+                if (result.success) {
+                    if (repairStatus) {
+                        repairStatus.textContent = result.message;
+                        repairStatus.style.color = 'green';
+                    }
+                    this.addLog('success', result.message);
+                } else {
+                    if (repairStatus) {
+                        repairStatus.textContent = 'Repair failed: ' + result.message;
+                        repairStatus.style.color = 'red';
+                    }
+                    this.addLog('error', 'Repair failed: ' + result.message);
+                }
+            } catch (error) {
+                if (repairStatus) {
+                    repairStatus.textContent = 'Error: ' + error.message;
+                    repairStatus.style.color = 'red';
+                }
+                this.addLog('error', `Repair error: ${error.message}`);
+            } finally {
+                if (button) button.disabled = false;
+                if (stopBtn) stopBtn.disabled = true; // Disable stop button
+                this.state.isRunning = false; // Mark as not running
+            }
+        };
+
+        // Repair All function
+        const performRepairAll = async () => {
+            const sheetsUrl = document.getElementById('sheetsUrl')?.value;
+            const sheetName = document.getElementById('sheetName')?.value || 'גיליון1';
+            const repairStatus = document.getElementById('repairStatus');
+            const button = document.getElementById('repairAllBtn');
+            const stopBtn = document.getElementById('stopBtn');
+
+            let spreadsheetId = null;
+            if (sheetsUrl) {
+                const match = sheetsUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+                if (match) spreadsheetId = match[1];
+            }
+
+            if (!spreadsheetId) {
+                alert('Please enter a valid Google Sheets URL in the main window first.');
+                return;
+            }
+
+            if (button) button.disabled = true;
+            if (stopBtn) stopBtn.disabled = false; // Enable stop button
+            this.state.isRunning = true; // Mark as running
+
+            if (repairStatus) {
+                repairStatus.textContent = 'Starting repair for all fields...';
+                repairStatus.style.color = '#666';
+            }
+            this.addLog('info', 'Starting repair for all missing fields...');
+
+            try {
+                const result = await window.electronAPI.repairAllFields({ spreadsheetId, sheetName });
+                if (result.success) {
+                    if (repairStatus) {
+                        repairStatus.textContent = result.message;
+                        repairStatus.style.color = 'green';
+                    }
+                    this.addLog('success', result.message);
+                    if (result.details) {
+                        result.details.forEach(detail => {
+                            this.addLog(detail.success ? 'success' : 'warning', `${detail.field}: ${detail.message}`);
+                        });
+                    }
+                } else {
+                    if (repairStatus) {
+                        repairStatus.textContent = 'Repair failed: ' + result.message;
+                        repairStatus.style.color = 'red';
+                    }
+                    this.addLog('error', 'Repair failed: ' + result.message);
+                }
+            } catch (error) {
+                if (repairStatus) {
+                    repairStatus.textContent = 'Error: ' + error.message;
+                    repairStatus.style.color = 'red';
+                }
+                this.addLog('error', `Repair error: ${error.message}`);
+            } finally {
+                if (button) button.disabled = false;
+                if (stopBtn) stopBtn.disabled = true; // Disable stop button
+                this.state.isRunning = false; // Mark as not running
+            }
+        };
+
+        // Legacy repair button (for backward compatibility)
+        const repairDataBtn = document.getElementById('repairDataBtn');
+        if (repairDataBtn) {
+            repairDataBtn.onclick = () => performRepair('group', 'repairDataBtn');
+        }
+
+        // New repair buttons
+        const repairGroupsBtn = document.getElementById('repairGroupsBtn');
+        if (repairGroupsBtn) {
+            repairGroupsBtn.onclick = () => performRepair('group', 'repairGroupsBtn');
+        }
+
+        const repairLikesBtn = document.getElementById('repairLikesBtn');
+        if (repairLikesBtn) {
+            repairLikesBtn.onclick = () => performRepair('likes', 'repairLikesBtn');
+        }
+
+        const repairCommentsBtn = document.getElementById('repairCommentsBtn');
+        if (repairCommentsBtn) {
+            repairCommentsBtn.onclick = () => performRepair('comments', 'repairCommentsBtn');
+        }
+
+        const repairSharesBtn = document.getElementById('repairSharesBtn');
+        if (repairSharesBtn) {
+            repairSharesBtn.onclick = () => performRepair('shares', 'repairSharesBtn');
+        }
+
+        const repairContentBtn = document.getElementById('repairContentBtn');
+        if (repairContentBtn) {
+            repairContentBtn.onclick = () => performRepair('content', 'repairContentBtn');
+        }
+
+        const repairSenderBtn = document.getElementById('repairSenderBtn');
+        if (repairSenderBtn) {
+            repairSenderBtn.onclick = () => performRepair('sender', 'repairSenderBtn');
+        }
+
+        const repairDateBtn = document.getElementById('repairDateBtn');
+        if (repairDateBtn) {
+            repairDateBtn.onclick = () => performRepair('date', 'repairDateBtn');
+        }
+
+        const repairAllBtn = document.getElementById('repairAllBtn');
+        if (repairAllBtn) {
+            repairAllBtn.onclick = performRepairAll;
+        }
+
+        // Copy log button
+        const copyLogBtn = document.getElementById("copyLogBtn");
+        if (copyLogBtn) {
+            copyLogBtn.addEventListener("click", () => {
+                const logViewer = document.getElementById("logViewer");
+                if (logViewer) {
+                    const logText = Array.from(logViewer.children)
+                        .map(entry => entry.textContent)
+                        .join('\n');
+                    navigator.clipboard.writeText(logText).then(() => {
+                        this.addLog("success", "Log copied to clipboard");
+                    });
+                }
+            });
+            console.log('✅ Copy log button listener added');
+        }
+
+        // Delete screenshots button
+        const deleteScreenshotsBtn = document.getElementById('deleteScreenshotsBtn');
+        if (deleteScreenshotsBtn) {
+            deleteScreenshotsBtn.addEventListener('click', async () => {
+                const confirmed = confirm('Are you sure you want to delete all screenshots?');
+                if (confirmed) {
+                    try {
+                        const result = await window.electronAPI.deleteScreenshots();
+                        if (result.success) {
+                            this.addLog('success', `Deleted ${result.count} screenshots`);
+                        } else {
+                            this.addLog('error', `Failed: ${result.message}`);
+                        }
+                    } catch (error) {
+                        this.addLog('error', `Error: ${error.message}`);
+                    }
+                }
+            });
+            console.log('✅ Delete screenshots button listener added');
+        }
+
+        // Open screenshots folder button
+        const openScreenshotsFolderBtn = document.getElementById('openScreenshotsFolderBtn');
+        if (openScreenshotsFolderBtn) {
+            openScreenshotsFolderBtn.addEventListener('click', async () => {
+                try {
+                    await window.electronAPI.openScreenshotsFolder();
+                    this.addLog('info', 'Opened screenshots folder');
+                } catch (error) {
+                    this.addLog('error', `Failed to open folder: ${error.message}`);
+                }
+            });
+            console.log('✅ Open screenshots folder button listener added');
+        }
+
+        // Browse buttons
+        const browseSavePathBtn = document.getElementById("browseSavePathBtn");
+        if (browseSavePathBtn) {
+            browseSavePathBtn.addEventListener("click", async () => {
+                try {
+                    const path = await window.electronAPI.browseSavePath();
+                    const savePathInput = document.getElementById("savePath");
+                    if (path && savePathInput) {
+                        savePathInput.value = path;
+                        this.addLog("success", `Selected path: ${path}`);
+                    }
+                } catch (error) {
+                    this.addLog("error", `Path selection error: ${error.message}`);
+                }
+            });
+            console.log('✅ Browse save path button listener added');
+        }
+
+        const browseFileBtn = document.getElementById("browseFileBtn");
+        if (browseFileBtn) {
+            browseFileBtn.addEventListener("click", async () => {
+                try {
+                    const filePath = await window.electronAPI.browseFile();
+                    const existingFileInput = document.getElementById("existingFile");
+                    if (filePath && existingFileInput) {
+                        existingFileInput.value = filePath;
+                        this.addLog("success", `Selected file: ${filePath}`);
+                    }
+                } catch (error) {
+                    this.addLog("error", `File selection error: ${error.message}`);
+                }
+            });
+            console.log('✅ Browse file button listener added');
+        }
+
+        // Test connection button
+        const testConnectionBtn = document.getElementById("testConnectionBtn");
+        if (testConnectionBtn) {
+            testConnectionBtn.addEventListener("click", async () => {
+                const sheetsUrl = document.getElementById("sheetsUrl");
+                if (!sheetsUrl || !sheetsUrl.value) {
+                    this.addLog("warning", "Please enter Google Sheets URL");
+                    return;
+                }
+
+                this.addLog("info", "Testing Google Sheets connection...");
+                try {
+                    const result = await window.electronAPI.testSheetsConnection({ url: sheetsUrl.value });
+                    this.addLog("success", `✅ Connected to sheet "${result.title}"`);
+
+                    // Update status badges
+                    const authStatus = document.getElementById('authStatus');
+                    const sheetsStatus = document.getElementById('sheetsStatus');
+                    if (authStatus) {
+                        authStatus.className = 'status-badge status-connected';
+                        authStatus.textContent = 'CONNECTED';
+                    }
+                    if (sheetsStatus) {
+                        sheetsStatus.className = 'status-badge status-connected';
+                        sheetsStatus.textContent = 'CONNECTED';
+                    }
+                } catch (error) {
+                    this.addLog("error", `❌ Connection error: ${error.message}`);
+
+                    // Update status badges to disconnected
+                    const authStatus = document.getElementById('authStatus');
+                    const sheetsStatus = document.getElementById('sheetsStatus');
+                    if (authStatus) {
+                        authStatus.className = 'status-badge status-disconnected';
+                        authStatus.textContent = 'Not connected';
+                    }
+                    if (sheetsStatus) {
+                        sheetsStatus.className = 'status-badge status-disconnected';
+                        sheetsStatus.textContent = 'Not connected';
+                    }
+                }
+            });
+            console.log('✅ Test connection button listener added');
+        }
+
+        // Open browser button
+        const openBrowserBtn = document.getElementById("openBrowserBtn");
+        if (openBrowserBtn) {
+            openBrowserBtn.addEventListener("click", async () => {
+                this.addLog("info", "Opening browser...");
+                try {
+                    await window.electronAPI.openBrowser();
+                    this.addLog("success", "Browser opened successfully");
+                } catch (error) {
+                    this.addLog("error", `Browser error: ${error.message}`);
+                }
+            });
+            console.log('✅ Open browser button listener added');
+        }
+
+        // Login/logout buttons
+        const loginBtn = document.getElementById("loginBtn");
+        if (loginBtn) {
+            loginBtn.addEventListener("click", async () => {
+                this.addLog("info", "Opening authentication...");
+                try {
+                    const sheetsUrl = document.getElementById("sheetsUrl")?.value || "https://docs.google.com/spreadsheets/d/test";
+                    const result = await window.electronAPI.testSheetsConnection({ url: sheetsUrl });
+                    this.addLog("success", "Authentication successful!");
+
+                    // Update status badges
+                    const authStatus = document.getElementById('authStatus');
+                    const sheetsStatus = document.getElementById('sheetsStatus');
+                    if (authStatus) {
+                        authStatus.className = 'status-badge status-connected';
+                        authStatus.textContent = 'CONNECTED';
+                    }
+                    if (sheetsStatus) {
+                        sheetsStatus.className = 'status-badge status-connected';
+                        sheetsStatus.textContent = 'CONNECTED';
+                    }
+                } catch (error) {
+                    this.addLog("error", `Authentication error: ${error.message}`);
+
+                    // Update status badges to disconnected
+                    const authStatus = document.getElementById('authStatus');
+                    const sheetsStatus = document.getElementById('sheetsStatus');
+                    if (authStatus) {
+                        authStatus.className = 'status-badge status-disconnected';
+                        authStatus.textContent = 'Not connected';
+                    }
+                    if (sheetsStatus) {
+                        sheetsStatus.className = 'status-badge status-disconnected';
+                        sheetsStatus.textContent = 'Not connected';
+                    }
+                }
+            });
+            console.log('✅ Login button listener added');
+        }
+
+        const logoutBtn = document.getElementById("logoutBtn");
+        if (logoutBtn) {
+            logoutBtn.addEventListener("click", async () => {
+                await window.electronAPI.logoutSheets();
+                this.addLog("info", "Logged out successfully");
+            });
+            console.log('✅ Logout button listener added');
+        }
+
+        console.log('✅ All event listeners set up');
+    },
+
+    updateFileName: function () {
+        const fileNameInput = document.getElementById("fileName");
+        if (fileNameInput) {
+            const now = new Date();
+            const timestamp = now.toISOString().replace(/[:.]/g, "-").slice(0, -5);
+            fileNameInput.value = `summaries_${timestamp}.csv`;
+        }
+    },
+
+    initialize: function () {
+        console.log("Initializing app...");
+
+        // Check if electronAPI is available
+        if (window.electronAPI) {
+            console.log("✅ electronAPI is available");
+
+            // Listen for scraping events
+            window.electronAPI.onScrapeLog((data) => {
+                this.addLog(data.type, data.message);
+            });
+
+            window.electronAPI.on('scraping-output', (data) => {
+                this.addLog(data.type, data.message);
+            });
+
+            window.electronAPI.on('scraping-complete', (results) => {
+                this.state.isRunning = false;
+                this.addLog('success', `✅ Scraping completed! ${results.succeeded || 0} succeeded, ${results.failed || 0} failed.`);
+
+                // Re-enable buttons after completion
+                this.resetButtons();
+            });
+
+            window.electronAPI.on('scraping-error', () => {
+                this.addLog("error", "❌ Scraping failed");
+                this.resetButtons();
+            });
+        } else {
+            console.error("❌ electronAPI is not available!");
+            this.addLog("error", "API not available");
+        }
+
+        this.updateFileName();
+        this.setupEventListeners();
+        this.addLog("info", "System ready");
+
+        console.log('✅ App initialized');
+    }
+};
+
+
+// Initialize when DOM is ready
+document.addEventListener("DOMContentLoaded", () => {
+    console.log('DOM loaded, initializing app...');
+    app.initialize();
+});
+
+console.log('✅ renderer.js fully loaded');

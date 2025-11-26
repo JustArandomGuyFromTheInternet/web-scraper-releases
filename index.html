@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Web Scraper - Social Media Intelligence</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="icon" href="ICON-modified.png" type="image/png">
+    <script defer src="renderer.js"></script>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="ICON-modified.png" alt="Web Scraper Logo"
+                style="width: 64px; height: 64px; margin-bottom: 10px; border-radius: 8px;">
+            <h1>Web Scraper</h1>
+            <p>Extract and analyze social media content</p>
+            <button class="btn btn-icon" id="settingsBtn" style="position: absolute; top: 20px; right: 20px;"
+                title="Settings">⚙️</button>
+        </div>
+
+        <!-- Settings Modal -->
+        <div id="settingsModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Settings</h2>
+                    <button class="close-btn" id="closeSettingsBtn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="input-group">
+                        <label for="apiKeyInput">Gemini API Key</label>
+                        <input type="password" id="apiKeyInput" placeholder="Enter your Gemini API Key">
+                        <div id="apiKeyStatus" class="status-badge status-disconnected" style="margin-top: 5px;">Not
+                            Configured</div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <h3>Column Selection</h3>
+                    <div class="checkbox-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <label><input type="checkbox" id="colSender" checked> Sender Name</label>
+                        <label><input type="checkbox" id="colGroup" checked> Group Name</label>
+                        <label><input type="checkbox" id="colDate" checked> Post Date</label>
+                        <label><input type="checkbox" id="colContent" checked> Content</label>
+                        <label><input type="checkbox" id="colSummary" checked> Summary</label>
+                        <label><input type="checkbox" id="colLikes" checked> Likes</label>
+                        <label><input type="checkbox" id="colComments" checked> Comments</label>
+                        <label><input type="checkbox" id="colShares" checked> Shares</label>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <h3>Repair Tools (כלי תיקון)</h3>
+                    <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
+                        תיקון נתונים חסרים בטבלה. כל כלי מחפש את המידע לפי סדר עדיפויות אוטומטי.
+                    </p>
+                    
+                    <div class="repair-tools-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+                        <button id="repairGroupsBtn" class="action-btn warning-btn" style="font-size: 0.9em; padding: 10px;">
+                            <span class="icon">🔧</span> Group Names
+                        </button>
+                        <button id="repairLikesBtn" class="action-btn warning-btn" style="font-size: 0.9em; padding: 10px;">
+                            <span class="icon">👍</span> Likes
+                        </button>
+                        <button id="repairCommentsBtn" class="action-btn warning-btn" style="font-size: 0.9em; padding: 10px;">
+                            <span class="icon">💬</span> Comments
+                        </button>
+                        <button id="repairSharesBtn" class="action-btn warning-btn" style="font-size: 0.9em; padding: 10px;">
+                            <span class="icon">📤</span> Shares
+                        </button>
+                        <button id="repairContentBtn" class="action-btn warning-btn" style="font-size: 0.9em; padding: 10px;">
+                            <span class="icon">📝</span> Content/Summary
+                        </button>
+                        <button id="repairSenderBtn" class="action-btn warning-btn" style="font-size: 0.9em; padding: 10px;">
+                            <span class="icon">👤</span> Sender Name
+                        </button>
+                        <button id="repairDateBtn" class="action-btn warning-btn" style="font-size: 0.9em; padding: 10px;">
+                            <span class="icon">📅</span> Post Date
+                        </button>
+                        <button id="repairAllBtn" class="action-btn primary-btn" style="font-size: 0.9em; padding: 10px; grid-column: 1 / -1;">
+                            <span class="icon">🔄</span> Repair All Missing Data
+                        </button>
+                    </div>
+                    
+                    <div id="repairStatus" style="margin-top: 10px; font-size: 0.9em; color: #666; min-height: 20px;"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="secondary-btn" id="cancelSettingsBtn">Cancel</button>
+                    <button class="primary-btn" id="saveSettingsBtn">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="content">
+            <!-- 1. Authentication -->
+            <div class="section auth-section">
+                <div class="section-header">
+                    <h3>🔐 Authentication</h3>
+                    <span id="authStatus" class="status-badge status-disconnected">Not connected</span>
+                </div>
+                <div class="auth-buttons">
+                    <button type="button" id="loginBtn" class="btn btn-primary">Connect to Google</button>
+                    <button type="button" id="logoutBtn" class="btn btn-secondary"
+                        style="display: none;">Disconnect</button>
+                    <button class="btn btn-outline" id="openBrowserBtn"
+                        title="Open browser to connect Facebook and Instagram accounts">🌐 Open Browser</button>
+                </div>
+                <div class="info-tip" style="font-size: 12px; margin-top: 8px;">
+                    💡 "Open Browser" button - to connect Facebook and Instagram accounts
+                </div>
+                <div class="info-tip">
+                    💡 Connect once and get access to all your spreadsheets
+                </div>
+            </div>
+
+            <!-- 2. Links Input -->
+            <div class="section input-section">
+                <div class="section-header">
+                    <h3>📋 Links to Scrape</h3>
+                </div>
+                <div class="form-group">
+                    <textarea id="linksInput" placeholder="Paste links here - one link per line..."></textarea>
+                </div>
+                <div id="linksStatus"></div>
+            </div>
+
+            <!-- 3. Save Destination -->
+            <div class="section destination-section">
+                <div class="section-header">
+                    <h3>💾 Save Destination</h3>
+                </div>
+                <div class="tabs">
+                    <button class="tab active" data-target="csv">Local CSV</button>
+                    <button class="tab" data-target="sheets">Google Sheets</button>
+                </div>
+
+                <!-- CSV Tab -->
+                <div class="tab-content active" id="csv-content">
+                    <div class="form-group">
+                        <label>Folder Path</label>
+                        <div class="input-group">
+                            <input type="text" id="savePath" value="./out_new" placeholder="Select folder">
+                            <button class="btn btn-icon" id="browseSavePathBtn">📁</button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>File Name</label>
+                        <input type="text" id="fileName" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>Or select existing file</label>
+                        <div class="input-group">
+                            <input type="text" id="existingFile" placeholder="Select existing CSV file" readonly>
+                            <button class="btn btn-icon" id="browseFileBtn">📁</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sheets Tab -->
+                <div class="tab-content" id="sheets-content">
+                    <div class="form-group">
+                        <label>Sheet URL</label>
+                        <div class="input-group">
+                            <input type="text" id="sheetsUrl" placeholder="https://docs.google.com/spreadsheets/d/...">
+                            <button class="btn btn-outline btn-sm" id="testConnectionBtn">Test</button>
+                        </div>
+                        <span id="sheetsStatus" class="status-badge status-disconnected"
+                            style="margin-top: 8px; display: inline-flex;">Not connected</span>
+                    </div>
+                    <div class="form-group">
+                        <label>Sheet Name</label>
+                        <input type="text" id="sheetName" value="Summaries" placeholder="Summaries">
+                    </div>
+                    <div class="checkbox-inline">
+                        <input type="checkbox" id="smartTableSync" checked>
+                        <label for="smartTableSync">Smart column matching</label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. Start Button -->
+            <div class="section action-section">
+                <!-- Action Buttons -->
+                <div class="action-buttons">
+                    <button id="visualBtn" class="btn visual">🚀 START SCRAPING</button>
+                    <button id="stopBtn" class="btn btn-danger" disabled>⏹ Stop</button>
+                </div>
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                    </div>
+                    <div class="progress-text" id="progressText">Waiting to start</div>
+                </div>
+            </div>
+
+            <!-- 5. Log -->
+            <div class="section log-section">
+                <div class="section-header">
+                    <h3>📊 Activity Log</h3>
+                    <div class="log-actions">
+                        <button class="btn btn-sm btn-outline" id="clearLogBtn">🗑️ Clear</button>
+                        <button class="btn btn-sm btn-outline" id="copyLogBtn">📋 Copy</button>
+                        <button class="btn btn-sm btn-outline" id="deleteScreenshotsBtn">🗑️ Delete Screenshots</button>
+                        <button class="btn btn-sm btn-outline" id="openScreenshotsFolderBtn">📂 Open Folder</button>
+                    </div>
+                </div>
+                <div class="log-viewer" id="logViewer">
+                    <div class="log-entry log-info">System ready</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        // Minimal initialization - main logic is in renderer.js
+        document.addEventListener('DOMContentLoaded', function () {
+            // Initialize filename
+            const fileNameInput = document.getElementById('fileName');
+            if (fileNameInput) {
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+                fileNameInput.value = `summaries_${timestamp}.csv`;
+            }
+        });
+    </script>
+    <style>
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background-color: white;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal-header {
+            padding: 20px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 20px;
+        }
+
+        .btn-close {
+            background: none;
+            border: none;
+            font-size: 28px;
+            cursor: pointer;
+            color: #666;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            line-height: 1;
+        }
+
+        .btn-close:hover {
+            color: #000;
+        }
+
+        .modal-body {
+            padding: 20px;
+        }
+
+        .modal-footer {
+            padding: 20px;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+    </style>
+</body>
+
+</html>

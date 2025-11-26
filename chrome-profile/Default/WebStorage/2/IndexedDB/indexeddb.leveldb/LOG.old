@@ -1,0 +1,6 @@
+2025/11/21-16:31:04.122 734c Creating DB C:\Users\eladj\OneDrive\שולחן העבודה\PUPPEREET\PUPPEREET\chrome-profile\Default\WebStorage\2\IndexedDB\indexeddb.leveldb since it was missing.
+2025/11/21-16:31:04.132 734c Reusing MANIFEST C:\Users\eladj\OneDrive\שולחן העבודה\PUPPEREET\PUPPEREET\chrome-profile\Default\WebStorage\2\IndexedDB\indexeddb.leveldb/MANIFEST-000001
+2025/11/21-16:37:20.938 582c Level-0 table #5: started
+2025/11/21-16:37:20.953 582c Level-0 table #5: 16320 bytes OK
+2025/11/21-16:37:20.955 582c Delete type=0 #3
+2025/11/21-16:37:20.956 582c Manual compaction at level-0 from (begin) .. (end); will stop at (end)
