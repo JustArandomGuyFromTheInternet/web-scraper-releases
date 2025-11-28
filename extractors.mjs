@@ -8,18 +8,19 @@ const cleanText = (s = "") => s.replace(/\u200B/g, "").replace(/\s+/g, " ").trim
 export async function waitForLikelyContent(page, url) {
   const host = new URL(url).hostname.toLowerCase();
   if (host.includes("facebook.com")) {
-    // Try multiple selectors for Facebook posts
+    // Try multiple selectors for Facebook posts (dialog first - most reliable)
     const selectors = [
-      '[role="dialog"][aria-modal="true"]',  // Modal post view
+      '[role="dialog"][aria-modal="true"]',  // Modal post view (most reliable)
       '[role="main"] article',                // Main feed post
-      '[role="article"]',                    // Generic article
+      '[role="article"]',                    // Generic article with role
+      'article',                              // Plain article fallback
       'div[data-pagelet]',                    // Facebook pagelet container
     ];
 
     let found = false;
     for (const selector of selectors) {
       try {
-        await page.waitForSelector(selector, { timeout: 5000 });
+        await page.waitForSelector(selector, { timeout: 15000 });
         console.log(`✅ Found content with selector: ${selector}`);
         found = true;
         await delay(3000); // Wait for content to load
@@ -73,74 +74,85 @@ export async function extractPostContent(page, url) {
   const host = new URL(url).hostname.toLowerCase();
 
   if (host.includes('facebook.com')) {
-    return await page.evaluate(() => {
-      console.log('=== Extracting Post Content ===');
+    try {
+      return await page.evaluate(() => {
+        console.log('=== Extracting Post Content ===');
 
-      // Strategy 1: Find the main post text in article
-      const article = document.querySelector('[role="article"]') ||
-        document.querySelector('[role="dialog"][aria-modal="true"]');
+        // Strategy 1: Find the main post text in article (dialog first!)
+        const article = document.querySelector('[role="dialog"][aria-modal="true"]') ||
+          document.querySelector('[role="article"]') ||
+          document.querySelector('article');
 
-      if (article) {
-        // Look for div[dir="auto"] elements that contain actual post text
-        const divs = article.querySelectorAll('div[dir="auto"]');
+        if (article) {
+          // Look for div[dir="auto"] elements that contain actual post text
+          const divs = article.querySelectorAll('div[dir="auto"]');
 
-        let longestText = '';
-        for (const div of divs) {
-          const text = div.textContent.trim();
+          let longestText = '';
+          for (const div of divs) {
+            const text = div.textContent.trim();
 
-          // Skip if it's metadata (likes, comments, shares)
-          if (/^\d+\s*(like|comment|share|reaction)/i.test(text)) continue;
-          if (/^(like|comment|share)/i.test(text)) continue;
+            // Skip if it's metadata (likes, comments, shares)
+            if (/^\d+\s*(like|comment|share|reaction)/i.test(text)) continue;
+            if (/^(like|comment|share)/i.test(text)) continue;
 
-          // Skip if it's a date/time
-          if (/\d+\s*(h|hr|hour|min|minute|day|week|month|year)s?\s*ago/i.test(text)) continue;
-          if (/yesterday|today/i.test(text) && text.length < 20) continue;
+            // Skip if it's a date/time
+            if (/\d+\s*(h|hr|hour|min|minute|day|week|month|year)s?\s*ago/i.test(text)) continue;
+            if (/yesterday|today/i.test(text) && text.length < 20) continue;
 
-          // Skip if it's just a name (too short)
-          if (text.length < 30) continue;
+            // Skip if it's just a name (too short)
+            if (text.length < 30) continue;
 
-          // Take the longest meaningful text
-          if (text.length > longestText.length) {
-            longestText = text;
-            console.log(`Found candidate: ${text.substring(0, 100)}...`);
+            // Take the longest meaningful text
+            if (text.length > longestText.length) {
+              longestText = text;
+              console.log(`Found candidate: ${text.substring(0, 100)}...`);
+            }
+          }
+
+          if (longestText.length > 50) {
+            console.log(`Selected post content: ${longestText.substring(0, 150)}...`);
+            return longestText;
           }
         }
 
-        if (longestText.length > 50) {
-          console.log(`Selected post content: ${longestText.substring(0, 150)}...`);
-          return longestText;
+        // Strategy 2: Try specific selectors
+        const selectors = [
+          '[data-ad-preview="message"]',
+          '[data-ad-comet-preview="message"]',
+          '[data-testid="post_message"]',
+          '.userContent'
+        ];
+
+        for (const sel of selectors) {
+          const el = document.querySelector(sel);
+          if (el && el.textContent && el.textContent.length > 50) {
+            console.log(`Found via selector ${sel}: ${el.textContent.substring(0, 100)}...`);
+            return el.textContent.trim();
+          }
         }
-      }
 
-      // Strategy 2: Try specific selectors
-      const selectors = [
-        '[data-ad-preview="message"]',
-        '[data-ad-comet-preview="message"]',
-        '[data-testid="post_message"]',
-        '.userContent'
-      ];
-
-      for (const sel of selectors) {
-        const el = document.querySelector(sel);
-        if (el && el.textContent && el.textContent.length > 50) {
-          console.log(`Found via selector ${sel}: ${el.textContent.substring(0, 100)}...`);
-          return el.textContent.trim();
+        // Fallback: get article text but clean it
+        if (article) {
+          const text = article.textContent.trim();
+          console.log(`Fallback to article text: ${text.substring(0, 100)}...`);
+          return text;
         }
-      }
 
-      // Fallback: get article text but clean it
-      if (article) {
-        const text = article.textContent.trim();
-        console.log(`Fallback to article text: ${text.substring(0, 100)}...`);
-        return text;
-      }
-
-      console.log('No post content found, using body');
-      return document.body.textContent.substring(0, 2000);
-    });
+        console.log('No post content found, using body');
+        return document.body.textContent.substring(0, 2000);
+      });
+    } catch (error) {
+      console.error('Error extracting post content:', error.message);
+      return ''; // Return empty string on error
+    }
   }
 
-  return await page.evaluate(() => document.body.textContent.substring(0, 2000));
+  try {
+    return await page.evaluate(() => document.body.textContent.substring(0, 2000));
+  } catch (error) {
+    console.error('Error extracting page content:', error.message);
+    return '';
+  }
 }
 
 // Generic text extraction function
@@ -176,240 +188,213 @@ export async function extractFacebookMetadata(page) {
   const data = await page.evaluate(() => {
     let metadata = { senderName: '', postDate: '', groupName: '', likes: 0, comments: 0, shares: 0 };
 
-    // ===== STEP 1: EXTRACT FROM JSON SCRIPTS =====
-    console.log('=== Searching JSON scripts ===');
-    const scripts = document.querySelectorAll('script[type="application/json"]');
+    try {
+      // ===== STEP 1: EXTRACT FROM JSON SCRIPTS =====
+      console.log('=== Searching JSON scripts ===');
+      const scripts = document.querySelectorAll('script[type="application/json"]');
 
-    for (let script of scripts) {
-      try {
-        const content = script.textContent || '';
+      for (let script of scripts) {
+        try {
+          const content = script.textContent || '';
 
-        // Extract sender name from JSON (most reliable)
-        if (!metadata.senderName && content.includes('actor')) {
-          const patterns = [
-            /"actor"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"/,
-            /"author"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"/,
-            /"actor_name"\s*:\s*"([^"]+)"/,
-            /"profile_name"\s*:\s*"([^"]+)"/,
-            /"__typename"\s*:\s*"User"[^}]*"name"\s*:\s*"([^"]+)"/,
-          ];
-          for (const pattern of patterns) {
-            const match = content.match(pattern);
-            if (match && match[1]) {
-              const name = match[1].trim();
-              if (name.length > 2 && name.length < 50 &&
-                !name.includes('Facebook') && !name.includes('See more')) {
-                metadata.senderName = name;
-                console.log('Found sender name in JSON:', name);
-                break;
-              }
-            }
-          }
-        }
-
-        // Extract group name from JSON (most reliable)
-        if (!metadata.groupName && content.includes('group')) {
-          const patterns = [
-            /"group"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"/,
-            /"group_name"\s*:\s*"([^"]+)"/,
-            /"target"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"[^}]*"__typename"\s*:\s*"Group"/,
-            /"__typename"\s*:\s*"Group"[^}]*"name"\s*:\s*"([^"]+)"/,
-          ];
-          for (const pattern of patterns) {
-            const match = content.match(pattern);
-            if (match && match[1]) {
-              const groupName = match[1].trim();
-              if (groupName.length > 3 && groupName.length < 100 &&
-                !groupName.includes('Facebook') && !groupName.includes('Join')) {
-                metadata.groupName = groupName;
-                console.log('Found group name in JSON:', groupName);
-                break;
-              }
-            }
-          }
-        }
-
-        // Extract likes/reactions
-        if (!metadata.likes && content.includes('reaction_count')) {
-          const match = content.match(/"reaction_count"\s*:\s*\{\s*"count"\s*:\s*(\d+)/);
-          if (match) {
-            metadata.likes = parseInt(match[1]);
-            console.log('Found likes in JSON:', metadata.likes);
-          }
-        }
-
-        // Extract comments
-        if (!metadata.comments && content.includes('total_count')) {
-          const match = content.match(/"comments"\s*:\s*\{\s*"total_count"\s*:\s*(\d+)/);
-          if (match) {
-            metadata.comments = parseInt(match[1]);
-            console.log('Found comments in JSON:', metadata.comments);
-          }
-        }
-
-        // Extract shares (IMPROVED - multiple patterns)
-        if (!metadata.shares) {
-          if (content.includes('share_count')) {
+          // Extract sender name from JSON (most reliable)
+          if (!metadata.senderName && content.includes('actor')) {
             const patterns = [
-              /"share_count"\s*:\s*\{\s*"count"\s*:\s*(\d+)/,
-              /"share_count"\s*:\s*(\d+)/,
-              /"share_count"\s*:\s*"(\d+)"/,
+              /"actor"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"/,
+              /"author"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"/,
+              /"actor_name"\s*:\s*"([^"]+)"/,
+              /"profile_name"\s*:\s*"([^"]+)"/,
+              /"__typename"\s*:\s*"User"[^}]*"name"\s*:\s*"([^"]+)"/,
             ];
             for (const pattern of patterns) {
               const match = content.match(pattern);
               if (match && match[1]) {
-                metadata.shares = parseInt(match[1]);
-                console.log('Found shares in JSON (pattern 1):', metadata.shares);
-                break;
+                const name = match[1].trim();
+                if (name.length > 2 && name.length < 50 &&
+                  !name.includes('Facebook') && !name.includes('See more')) {
+                  metadata.senderName = name;
+                  console.log('Found sender name in JSON:', name);
+                  break;
+                }
               }
             }
           }
 
-          if (!metadata.shares && content.includes('i18n_share_count')) {
+          // Extract group name from JSON (most reliable)
+          if (!metadata.groupName && content.includes('group')) {
             const patterns = [
-              /"i18n_share_count"\s*:\s*"(\d+)"/,
-              /"i18n_share_count"\s*:\s*(\d+)/,
+              /"group"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"/,
+              /"group_name"\s*:\s*"([^"]+)"/,
+              /"target"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"[^}]*"__typename"\s*:\s*"Group"/,
+              /"__typename"\s*:\s*"Group"[^}]*"name"\s*:\s*"([^"]+)"/,
             ];
             for (const pattern of patterns) {
               const match = content.match(pattern);
               if (match && match[1]) {
-                metadata.shares = parseInt(match[1]);
-                console.log('Found shares in i18n JSON:', metadata.shares);
-                break;
+                const groupName = match[1].trim();
+                if (groupName.length > 3 && groupName.length < 100 &&
+                  !groupName.includes('Facebook') && !groupName.includes('Join')) {
+                  metadata.groupName = groupName;
+                  console.log('Found group name in JSON:', groupName);
+                  break;
+                }
               }
             }
           }
 
-          if (!metadata.shares && content.includes('sharing_count')) {
-            const match = content.match(/"sharing_count"\s*:\s*(\d+)/);
+          // Extract likes/reactions
+          if (!metadata.likes && content.includes('reaction_count')) {
+            const match = content.match(/"reaction_count"\s*:\s*\{\s*"count"\s*:\s*(\d+)/);
             if (match) {
-              metadata.shares = parseInt(match[1]);
-              console.log('Found shares as sharing_count:', metadata.shares);
+              metadata.likes = parseInt(match[1]);
+              console.log('Found likes in JSON:', metadata.likes);
             }
           }
 
-          if (!metadata.shares && (content.includes('shareInfo') || content.includes('share_info'))) {
-            const patterns = [
-              /"shareInfo"\s*:\s*\{[^}]*"count"\s*:\s*(\d+)/,
-              /"share_info"\s*:\s*\{[^}]*"count"\s*:\s*(\d+)/,
-            ];
-            for (const pattern of patterns) {
-              const match = content.match(pattern);
-              if (match && match[1]) {
-                metadata.shares = parseInt(match[1]);
-                console.log('Found shares in shareInfo:', metadata.shares);
-                break;
-              }
+          // Extract comments
+          if (!metadata.comments && content.includes('total_count')) {
+            const match = content.match(/"comments"\s*:\s*\{\s*"total_count"\s*:\s*(\d+)/);
+            if (match) {
+              metadata.comments = parseInt(match[1]);
+              console.log('Found comments in JSON:', metadata.comments);
             }
           }
+
+          // Share extraction removed as requested
+        } catch (e) {
+          console.error('Error parsing script:', e.message);
         }
-      } catch (e) {
-        console.error('Error parsing script:', e);
       }
+    } catch (e) {
+      console.error('Error in JSON extraction:', e.message);
     }
+
 
     // ===== STEP 2: GROUP NAME EXTRACTION (VISUAL/DOM FALLBACKS) =====
-    if (!metadata.groupName) {
-      const post = document.querySelector('[role="article"]') ||
-        document.querySelector('[role="dialog"][aria-modal="true"]');
+    try {
+      if (!metadata.groupName) {
+        const post = document.querySelector('[role="dialog"][aria-modal="true"]') ||
+          document.querySelector('[role="article"]') ||
+          document.querySelector('article');
 
-      if (post) {
-        const header = post.querySelector('header, [role="banner"]');
-        if (header) {
-          const headerText = header.textContent || '';
-          const patterns = [
-            /([^>]+)\s*>\s*([^\\u2022\n]+)/,
-            /shared\s+(?:a\s+)?(?:post|link|photo)\s+to\s+([^\\u2022\n]+)/i,
-            /shared\s+in\s+([^\\u2022\n]+)/i,
-            /בקבוצה\s+([^\\u2022\n]+)/,
-            /לעמוד\s+([^\\u2022\n]+)/,
-          ];
+        if (post) {
+          const header = post.querySelector('header, [role="banner"]');
+          if (header) {
+            const headerText = header.textContent || '';
+            const patterns = [
+              /([^>]+)\s*>\s*([^\u2022\n]+)/,
+              /shared\s+(?:a\s+)?(?:post|link|photo)\s+to\s+([^\u2022\n]+)/i,
+              /shared\s+in\s+([^\u2022\n]+)/i,
+              /בקבוצה\s+([^\u2022\n]+)/,
+              /לעמוד\s+([^\u2022\n]+)/,
+            ];
 
-          for (const pattern of patterns) {
-            const match = headerText.match(pattern);
-            if (match && match[match.length - 1]) {
-              const candidate = match[match.length - 1].trim();
-              if (candidate.length > 3 && candidate.length < 100 &&
-                !candidate.includes('Facebook') && !candidate.includes('See more') &&
-                !candidate.includes('הצטרף') && !candidate.includes('Join')) {
-                metadata.groupName = candidate;
-                console.log('Found group name in header pattern:', candidate);
-                break;
+            for (const pattern of patterns) {
+              const match = headerText.match(pattern);
+              if (match && match[match.length - 1]) {
+                const candidate = match[match.length - 1].trim();
+                if (candidate.length > 3 && candidate.length < 100 &&
+                  !candidate.includes('Facebook') && !candidate.includes('See more') &&
+                  !candidate.includes('הצטרף') && !candidate.includes('Join')) {
+                  metadata.groupName = candidate;
+                  console.log('Found group name in header pattern:', candidate);
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        if (!metadata.groupName) {
+          const groupLinks = Array.from(document.querySelectorAll('a[href*="/groups/"]'));
+          for (const link of groupLinks) {
+            const text = link.textContent.trim();
+            const href = link.getAttribute('href') || '';
+            if (text && text.length > 3 && text.length < 100 &&
+              !text.includes('Join') && !text.includes('הצטרף') &&
+              !text.includes('Facebook') && !text.includes('Groups') &&
+              href.includes('/groups/')) {
+              metadata.groupName = text;
+              console.log('Found group name from link:', text);
+              break;
+            }
+          }
+        }
+
+        if (!metadata.groupName) {
+          const banner = document.querySelector('[role="banner"]');
+          if (banner) {
+            const h1 = banner.querySelector('h1, h2');
+            if (h1) {
+              const text = h1.textContent.trim();
+              if (text && text.length > 3 && text.length < 100 &&
+                !text.includes('Facebook') && !text.includes('Home') &&
+                !text.includes('Profile') && !text.includes('Timeline')) {
+                metadata.groupName = text;
+                console.log('Found group name from banner:', text);
               }
             }
           }
         }
       }
-
-      if (!metadata.groupName) {
-        const groupLinks = Array.from(document.querySelectorAll('a[href*="/groups/"]'));
-        for (const link of groupLinks) {
-          const text = link.textContent.trim();
-          const href = link.getAttribute('href') || '';
-          if (text && text.length > 3 && text.length < 100 &&
-            !text.includes('Join') && !text.includes('הצטרף') &&
-            !text.includes('Facebook') && !text.includes('Groups') &&
-            href.includes('/groups/')) {
-            metadata.groupName = text;
-            console.log('Found group name from link:', text);
-            break;
-          }
-        }
-      }
-
-      if (!metadata.groupName) {
-        const banner = document.querySelector('[role="banner"]');
-        if (banner) {
-          const h1 = banner.querySelector('h1, h2');
-          if (h1) {
-            const text = h1.textContent.trim();
-            if (text && text.length > 3 && text.length < 100 &&
-              !text.includes('Facebook') && !text.includes('Home') &&
-              !text.includes('Profile') && !text.includes('Timeline')) {
-              metadata.groupName = text;
-              console.log('Found group name from banner:', text);
-            }
-          }
-        }
-      }
+    } catch (e) {
+      console.error('Error in group name extraction:', e.message);
     }
 
+
     // ===== STEP 3: SENDER NAME EXTRACTION (VISUAL/DOM FALLBACKS) =====
-    console.log('=== Extracting Sender Name ===');
+    try {
+      console.log('=== Extracting Sender Name ===');
 
-    if (!metadata.senderName) {
-      const post = document.querySelector('[role="article"]') ||
-        document.querySelector('[data-ad-preview="message"]') ||
-        document.querySelector('[role="dialog"][aria-modal="true"]');
+      if (!metadata.senderName) {
+        const post = document.querySelector('[role="dialog"][aria-modal="true"]') ||
+          document.querySelector('[data-ad-preview="message"]') ||
+          document.querySelector('[role="article"]') ||
+          document.querySelector('article');
 
-      if (post) {
-        const postHeader = post.querySelector('header, h2, h3, [role="banner"]');
-        if (postHeader) {
-          const authorLinks = Array.from(postHeader.querySelectorAll('a[href*="profile"], a[href*="/user/"], a[href*="people"], a[role="link"]'));
-          for (const link of authorLinks) {
-            const text = link.textContent.trim();
-            const href = link.getAttribute('href') || '';
-            if (text && text.length > 2 && text.length < 50 &&
-              !text.includes('See more') && !text.includes('ראה עוד') &&
-              !text.includes('Comment') && !text.includes('Like') &&
-              !text.includes('Share') && !text.match(/^\d+[hms]$/) &&
-              (href.includes('profile') || href.includes('/user/') || href.includes('people'))) {
-              metadata.senderName = text;
-              console.log('Found sender name from post header link:', text);
-              break;
+        if (post) {
+          const postHeader = post.querySelector('header, h2, h3, [role="banner"]');
+          if (postHeader) {
+            const authorLinks = Array.from(postHeader.querySelectorAll('a[href*="profile"], a[href*="/user/"], a[href*="people"], a[role="link"]'));
+            for (const link of authorLinks) {
+              const text = link.textContent.trim();
+              const href = link.getAttribute('href') || '';
+              if (text && text.length > 2 && text.length < 50 &&
+                !text.includes('See more') && !text.includes('ראה עוד') &&
+                !text.includes('Comment') && !text.includes('Like') &&
+                !text.includes('Share') && !text.match(/^\d+[hms]$/) &&
+                (href.includes('profile') || href.includes('/user/') || href.includes('people'))) {
+                metadata.senderName = text;
+                console.log('Found sender name from post header link:', text);
+                break;
+              }
+            }
+
+            if (!metadata.senderName) {
+              const strongElements = postHeader.querySelectorAll('strong, b, span[dir="auto"] > span, h2, h3');
+              for (const el of strongElements) {
+                const text = el.textContent.trim();
+                if (text && text.length > 2 && text.length < 50 &&
+                  !text.includes('See more') && !text.includes('ראה עוד') &&
+                  !text.match(/^\d+[hms]$/) &&
+                  text.split(/\s+/).length <= 4) {
+                  metadata.senderName = text;
+                  console.log('Found sender name from header strong:', text);
+                  break;
+                }
+              }
             }
           }
 
           if (!metadata.senderName) {
-            const strongElements = postHeader.querySelectorAll('strong, b, span[dir="auto"] > span, h2, h3');
-            for (const el of strongElements) {
-              const text = el.textContent.trim();
+            const allLinks = Array.from(post.querySelectorAll('a[href*="profile"], a[href*="/user/"], a[href*="people"]'));
+            for (const link of allLinks) {
+              const text = link.textContent.trim();
               if (text && text.length > 2 && text.length < 50 &&
                 !text.includes('See more') && !text.includes('ראה עוד') &&
-                !text.match(/^\d+[hms]$/) &&
-                text.split(/\s+/).length <= 4) {
+                !text.match(/^\d+[hms]$/)) {
                 metadata.senderName = text;
-                console.log('Found sender name from header strong:', text);
+                console.log('Found sender name from post link:', text);
                 break;
               }
             }
@@ -417,62 +402,54 @@ export async function extractFacebookMetadata(page) {
         }
 
         if (!metadata.senderName) {
-          const allLinks = Array.from(post.querySelectorAll('a[href*="profile"], a[href*="/user/"], a[href*="people"]'));
-          for (const link of allLinks) {
-            const text = link.textContent.trim();
-            if (text && text.length > 2 && text.length < 50 &&
-              !text.includes('See more') && !text.includes('ראה עוד') &&
-              !text.match(/^\d+[hms]$/)) {
-              metadata.senderName = text;
-              console.log('Found sender name from post link:', text);
-              break;
-            }
+          const invalidNames = ['see more', 'ראה עוד', 'just now', 'לפני רגע',
+            'sponsored', 'ממומן', 'translate', 'comment', 'like', 'share',
+            'facebook', 'home', 'profile', 'timeline', 'groups', 'marketplace'];
+
+          const candidates = Array.from(document.querySelectorAll('a[href*="profile"], a[href*="/user/"], a[href*="people"]'))
+            .map(link => ({
+              text: link.textContent.trim(),
+              href: link.getAttribute('href') || ''
+            }))
+            .filter(({ text, href }) => {
+              if (!text || text.length < 3 || text.length > 50) return false;
+              const lower = text.toLowerCase();
+              return !invalidNames.some(invalid => lower.includes(invalid)) &&
+                (href.includes('profile') || href.includes('/user/') || href.includes('people'));
+            })
+            .map(({ text }) => text);
+
+          if (candidates.length > 0) {
+            metadata.senderName = candidates[0];
+            console.log('Found sender name from page-wide search:', candidates[0]);
           }
         }
       }
-
-      if (!metadata.senderName) {
-        const invalidNames = ['see more', 'ראה עוד', 'just now', 'לפני רגע',
-          'sponsored', 'ממומן', 'translate', 'comment', 'like', 'share',
-          'facebook', 'home', 'profile', 'timeline', 'groups', 'marketplace'];
-
-        const candidates = Array.from(document.querySelectorAll('a[href*="profile"], a[href*="/user/"], a[href*="people"]'))
-          .map(link => ({
-            text: link.textContent.trim(),
-            href: link.getAttribute('href') || ''
-          }))
-          .filter(({ text, href }) => {
-            if (!text || text.length < 3 || text.length > 50) return false;
-            const lower = text.toLowerCase();
-            return !invalidNames.some(invalid => lower.includes(invalid)) &&
-              (href.includes('profile') || href.includes('/user/') || href.includes('people'));
-          })
-          .map(({ text }) => text);
-
-        if (candidates.length > 0) {
-          metadata.senderName = candidates[0];
-          console.log('Found sender name from page-wide search:', candidates[0]);
-        }
-      }
+    } catch (e) {
+      console.error('Error in sender name extraction:', e.message);
     }
 
     // ===== STEP 4: POST DATE EXTRACTION =====
-    const dateSelectors = ['abbr', 'time', '[data-utime]'];
-    for (const sel of dateSelectors) {
-      const el = document.querySelector(sel);
-      if (el) {
-        const text = (el.innerText || el.textContent || el.getAttribute('title') || '').trim();
-        if (text) {
-          metadata.postDate = text;
-          break;
+    try {
+      const dateSelectors = ['abbr', 'time', '[data-utime]'];
+      for (const sel of dateSelectors) {
+        const el = document.querySelector(sel);
+        if (el) {
+          const text = (el.innerText || el.textContent || el.getAttribute('title') || '').trim();
+          if (text) {
+            metadata.postDate = text;
+            break;
+          }
         }
       }
+    } catch (e) {
+      console.error('Error in post date extraction:', e.message);
     }
 
     // Helper: extract number from text with K/M support
     const parseNum = (str) => {
       if (!str) return 0;
-      str = str.replace(/[,\s\\u200f\\u202c\\u202a]/g, '');
+      str = str.replace(/[,\s\u200f\u202c\u202a]/g, '');
       const match = str.match(/([0-9.]+)([KMkm])?/);
       if (!match) return 0;
       let num = parseFloat(match[1]);
@@ -485,58 +462,45 @@ export async function extractFacebookMetadata(page) {
     };
 
     // ===== STEP 5: STATS FROM VISIBLE TEXT (FALLBACK) =====
-    if (!metadata.likes || !metadata.comments || !metadata.shares) {
-      const modal = document.querySelector('[role="dialog"][aria-modal="true"]');
-      const bodyText = (modal || document.body).innerText;
-      const lines = bodyText.split('\n').map(l => l.trim()).filter(l => l);
+    try {
+      if (!metadata.likes || !metadata.comments || !metadata.shares) {
+        const modal = document.querySelector('[role="dialog"][aria-modal="true"]');
+        const bodyText = (modal || document.body).innerText;
+        const lines = bodyText.split('\n').map(l => l.trim()).filter(l => l);
 
-      for (const line of lines) {
-        if (!metadata.likes) {
-          const patterns = [
-            /(\d+[\d,.kKmM]+)\s*(reactions?)/i,
-            /all\s*reactions?[:\s]+(\d+[\d,.kKmM]*)/i,
-          ];
-          for (const pattern of patterns) {
-            const match = line.match(pattern);
-            if (match) {
-              metadata.likes = parseNum(match[1]);
-              break;
-            }
-          }
-        }
-
-        if (!metadata.comments) {
-          const patterns = [
-            /(\d+[\d,.kKmM]+)\s*(comment)/i,
-          ];
-          for (const pattern of patterns) {
-            const match = line.match(pattern);
-            if (match) {
-              metadata.comments = parseNum(match[1]);
-              break;
-            }
-          }
-        }
-
-        if (!metadata.shares) {
-          const patterns = [
-            /(\d+[\d,.kKmM]*)\s*(share|שיתופים?|שיתוף)/i,
-            /(\d+[\d,.kKmM]*)\s*(people\s+shared|אנשים\s+שיתפו)/i,
-            /(shared|שיתפו)\s+(\d+[\d,.kKmM]*)/i,
-          ];
-          for (const pattern of patterns) {
-            const match = line.match(pattern);
-            if (match) {
-              const numStr = match[1] || match[2];
-              if (numStr) {
-                metadata.shares = parseNum(numStr);
-                console.log('Found shares in text:', metadata.shares);
+        for (const line of lines) {
+          if (!metadata.likes) {
+            const patterns = [
+              /(\d+[\d,.kKmM]+)\s*(reactions?)/i,
+              /all\s*reactions?[:\s]+(\d+[\d,.kKmM]*)/i,
+            ];
+            for (const pattern of patterns) {
+              const match = line.match(pattern);
+              if (match) {
+                metadata.likes = parseNum(match[1]);
                 break;
               }
             }
           }
+
+          if (!metadata.comments) {
+            const patterns = [
+              /(\d+[\d,.kKmM]+)\s*(comment)/i,
+            ];
+            for (const pattern of patterns) {
+              const match = line.match(pattern);
+              if (match) {
+                metadata.comments = parseNum(match[1]);
+                break;
+              }
+            }
+          }
+
+          // Shares extraction removed as requested
         }
       }
+    } catch (e) {
+      console.error('Error in stats extraction:', e.message);
     }
 
     return metadata;
@@ -555,59 +519,71 @@ export async function extractTikTokMetadata(page) {
   const data = await page.evaluate(() => {
     let metadata = { senderName: '', postDate: '', likes: 0, comments: 0, shares: 0 };
 
-    const authorSelectors = [
-      '[data-e2e="browse-username"]',
-      'h2[data-e2e="browse-username"]',
-      'a[data-e2e="browse-username"]',
-      'h2',
-      'strong'
-    ];
+    // Author name extraction
+    try {
+      const authorSelectors = [
+        '[data-e2e="browse-username"]',
+        'h2[data-e2e="browse-username"]',
+        'a[data-e2e="browse-username"]',
+        'h2',
+        'strong'
+      ];
 
-    for (const sel of authorSelectors) {
-      const el = document.querySelector(sel);
-      if (el) {
-        const text = el.textContent.trim();
-        if (text && text.length > 2 && text.length < 50 && !text.includes('@')) {
-          metadata.senderName = text.replace('@', '');
-          break;
+      for (const sel of authorSelectors) {
+        const el = document.querySelector(sel);
+        if (el) {
+          const text = el.textContent.trim();
+          if (text && text.length > 2 && text.length < 50 && !text.includes('@')) {
+            metadata.senderName = text.replace('@', '');
+            break;
+          }
         }
       }
+    } catch (e) {
+      console.error('Error in TikTok author extraction:', e.message);
     }
 
-    const scripts = document.querySelectorAll('script[type="application/json"]');
-    for (const script of scripts) {
-      try {
-        const content = script.textContent || '';
+    // Stats extraction from JSON
+    try {
+      const scripts = document.querySelectorAll('script[type="application/json"]');
+      for (const script of scripts) {
+        try {
+          const content = script.textContent || '';
 
-        if (!metadata.likes && content.includes('diggCount')) {
-          const match = content.match(/"diggCount"\s*:\s*(\d+)/);
-          if (match) metadata.likes = parseInt(match[1]);
-        }
+          if (!metadata.likes && content.includes('diggCount')) {
+            const match = content.match(/"diggCount"\s*:\s*(\d+)/);
+            if (match) metadata.likes = parseInt(match[1]);
+          }
 
-        if (!metadata.comments && content.includes('commentCount')) {
-          const match = content.match(/"commentCount"\s*:\s*(\d+)/);
-          if (match) metadata.comments = parseInt(match[1]);
-        }
+          if (!metadata.comments && content.includes('commentCount')) {
+            const match = content.match(/"commentCount"\s*:\s*(\d+)/);
+            if (match) metadata.comments = parseInt(match[1]);
+          }
 
-        if (!metadata.shares && content.includes('shareCount')) {
-          const match = content.match(/"shareCount"\s*:\s*(\d+)/);
-          if (match) metadata.shares = parseInt(match[1]);
+          // Share count extraction removed
+        } catch (e) {
+          console.error('Error parsing TikTok JSON script:', e.message);
         }
-      } catch (e) {
-        // Continue
       }
+    } catch (e) {
+      console.error('Error in TikTok JSON extraction:', e.message);
     }
 
-    const dateSelectors = ['time', '[data-e2e="browse-time"]'];
-    for (const sel of dateSelectors) {
-      const el = document.querySelector(sel);
-      if (el) {
-        const text = el.textContent || el.getAttribute('datetime') || '';
-        if (text) {
-          metadata.postDate = text;
-          break;
+    // Date extraction
+    try {
+      const dateSelectors = ['time', '[data-e2e="browse-time"]'];
+      for (const sel of dateSelectors) {
+        const el = document.querySelector(sel);
+        if (el) {
+          const text = el.textContent || el.getAttribute('datetime') || '';
+          if (text) {
+            metadata.postDate = text;
+            break;
+          }
         }
       }
+    } catch (e) {
+      console.error('Error in TikTok date extraction:', e.message);
     }
 
     return metadata;

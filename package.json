@@ -1,5 +1,5 @@
 {
-  "name": "puppereet",
+  "name": "web-scraper",
   "version": "1.0.0",
   "description": "מערכת סקרייפינג - Desktop application",
   "main": "main.js",
@@ -16,6 +16,8 @@
     "@google/genai": "^1.29.0",
     "csv-parse": "^5.6.0",
     "dotenv": "^16.4.5",
+    "electron-log": "^5.4.3",
+    "electron-updater": "^6.6.2",
     "googleapis": "^144.0.0",
     "jimp": "^1.6.0",
     "open": "^11.0.0",
@@ -28,8 +30,13 @@
     "electron-builder": "^25.1.8"
   },
   "build": {
-    "appId": "com.puppereet.app",
-    "productName": "מערכת סקרייפינג",
+    "appId": "com.webscraper.app",
+    "productName": "Web Scraper",
+    "publish": {
+      "provider": "github",
+      "owner": "JustArandomGuyFromTheInternet",
+      "repo": "Web-Scraper"
+    },
     "directories": {
       "output": "dist"
     },
@@ -37,12 +44,24 @@
       "**/*",
       "!**/*.md",
       "!chrome-data/**",
+      "!chrome-profile/**",
       "!out_new/**",
-      "!dist/**"
+      "!dist/**",
+      "!visual_engine/screen_shots/**"
     ],
     "win": {
       "target": "nsis",
-      "icon": "icon.png"
+      "icon": "ICON-modified.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "installerIcon": "ICON-modified.png",
+      "uninstallerIcon": "ICON-modified.png",
+      "deleteAppDataOnUninstall": false
     }
   }
 }

@@ -113,13 +113,31 @@ export async function capturePostScreenshot(page, outputPath) {
                     await element.scrollIntoView();
                     await new Promise(r => setTimeout(r, 300));
 
-                    // Capture the full element (this automatically captures full height)
-                    await element.screenshot({
-                        path: outputPath,
-                        type: 'jpeg',
-                        quality: 80,
-                        // element.screenshot() automatically captures the full element, even if taller than viewport
-                    });
+                    // 🎯 הגבלת גובה מקסימלי כדי למנוע תמונות ארוכות מדי
+                    const MAX_HEIGHT = 4000; // מקסימום 4000px גובה
+                    const captureBox = await element.boundingBox();
+
+                    if (captureBox.height > MAX_HEIGHT) {
+                        console.log(`⚠️ תמונה ארוכה מדי (${Math.round(captureBox.height)}px) - מגביל ל-${MAX_HEIGHT}px`);
+                        await element.screenshot({
+                            path: outputPath,
+                            type: 'jpeg',
+                            quality: 80,
+                            clip: {
+                                x: captureBox.x,
+                                y: captureBox.y,
+                                width: captureBox.width,
+                                height: MAX_HEIGHT
+                            }
+                        });
+                    } else {
+                        // Capture the full element normally
+                        await element.screenshot({
+                            path: outputPath,
+                            type: 'jpeg',
+                            quality: 80
+                        });
+                    }
 
                     console.log(`📸 Screenshot saved to: ${outputPath}`);
                     return true;
@@ -129,14 +147,23 @@ export async function capturePostScreenshot(page, outputPath) {
             console.warn(`⚠️ S09 strategy failed: ${e.message}`);
         }
 
-        // Fallback: full page screenshot if S09 fails
-        // This will capture the entire page including all scrolled content
-        console.warn('⚠️ S09 strategy not found. Taking full page screenshot as fallback.');
+        // Fallback: limited page screenshot if S09 fails
+        console.warn('⚠️ S09 strategy not found. Taking limited screenshot as fallback.');
+
+        // 🎯 צלם רק את החלק העליון של הדף (מקסימום 4000px)
+        const viewport = await page.viewport();
+        const MAX_HEIGHT = 4000;
+
         await page.screenshot({
             path: outputPath,
-            fullPage: true, // This captures the entire page height
             type: 'jpeg',
-            quality: 80
+            quality: 80,
+            clip: {
+                x: 0,
+                y: 0,
+                width: viewport.width,
+                height: Math.min(MAX_HEIGHT, viewport.height)
+            }
         });
         console.log(`📸 Full page screenshot saved to: ${outputPath}`);
         return true;

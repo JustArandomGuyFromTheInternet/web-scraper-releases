@@ -60,7 +60,6 @@ async function ensureSheetStructure(sheets, spreadsheetId, sheetName) {
       'Summary',
       'Likes',
       'Comments',
-      'Shares',
       'AI Validation'
     ];
 
@@ -88,7 +87,6 @@ async function ensureSheetStructure(sheets, spreadsheetId, sheetName) {
         'Summary',
         'Likes',
         'Comments',
-        'Shares',
         'AI Validation'
       ];
 
@@ -114,8 +112,7 @@ export async function smartWriteToSheet({
   summary,
   validation,
   likes = 0,
-  comments = 0,
-  shares = 0
+  comments = 0
 }) {
   const sheets = google.sheets({ version: 'v4', auth: await getAuthClient() });
 
@@ -130,7 +127,6 @@ export async function smartWriteToSheet({
     summary,
     likes,
     comments,
-    shares,
     validation
   ]];
 

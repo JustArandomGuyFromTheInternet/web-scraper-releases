@@ -209,7 +209,7 @@ export async function main() {
             page = await navigateWithRetry(browser, url, name);
 
             if (IS_VISUAL_MODE) {
-                const { waitForLikelyContent, extractFacebookMetadata, extractTikTokMetadata } = await importExtractors();
+                const { waitForLikelyContent, extractFacebookMetadata, extractTikTokMetadata } = await import('../extractors.mjs');
                 await waitForLikelyContent(page, url);
                 const { analyzePostImage, optimizeImage } = await importVisualEngine();
 
@@ -235,7 +235,7 @@ export async function main() {
                 const optimizedPath = await optimizeImage(screenshotPath);
 
                 // Puppeteer Stats
-                let statsMetadata = { likes: 0, comments: 0, shares: 0, groupName: '', postDate: '' };
+                let statsMetadata = { likes: 0, comments: 0, groupName: '', postDate: '' };
                 if (url.includes('facebook.com')) {
                     log('Starting Facebook metadata extraction...', 'info');
                     try {
@@ -244,7 +244,8 @@ export async function main() {
                         log('Facebook metadata extraction completed', 'success');
                     } catch (err) {
                         log(`Facebook metadata extraction failed: ${err.message}`, 'error');
-                        throw err; // Re-throw to catch in main loop
+                        // DON'T throw - continue with empty metadata
+                        console.warn('⚠️ Continuing without Facebook metadata');
                     }
                 } else if (isTikTok) {
                     log('Starting TikTok metadata extraction...', 'info');

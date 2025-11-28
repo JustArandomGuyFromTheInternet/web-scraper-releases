@@ -56,7 +56,7 @@ async function getSheetsClient() {
 
 // Helper: Get column index by name
 function findColumn(headers, candidates) {
-    return headers.findIndex(h => candidates.some(c => 
+    return headers.findIndex(h => candidates.some(c =>
         h && h.toString().trim().toLowerCase().includes(c.toLowerCase())
     ));
 }
@@ -80,10 +80,15 @@ async function tryPuppeteerExtraction(url, field) {
         await waitForLikelyContent(page, url);
 
         let metadata = {};
-        if (url.includes('facebook.com')) {
-            metadata = await extractFacebookMetadata(page);
-        } else if (url.includes('tiktok.com')) {
-            metadata = await extractTikTokMetadata(page);
+        try {
+            if (url.includes('facebook.com')) {
+                metadata = await extractFacebookMetadata(page);
+            } else if (url.includes('tiktok.com')) {
+                metadata = await extractTikTokMetadata(page);
+            }
+        } catch (extractionError) {
+            log(`Metadata extraction failed in repair: ${extractionError.message}`, 'warning');
+            // Continue with empty metadata
         }
 
         await page.close();
@@ -103,7 +108,7 @@ async function tryPuppeteerExtraction(url, field) {
         if (browser) {
             try {
                 await browser.close();
-            } catch {}
+            } catch { }
         }
         return null;
     }
@@ -120,7 +125,7 @@ async function tryAIFromScreenshot(screenshotPath, field) {
         }
 
         const aiData = await analyzePostImage(screenshotPath, {});
-        
+
         if (field === 'likes' || field === 'comments' || field === 'shares') {
             // AI doesn't extract stats from images, return null
             return null;
@@ -158,7 +163,7 @@ async function tryNewScreenshotAndAI(url, field) {
         await fs.mkdir(screenshotsDir, { recursive: true });
         const sanitizedUrl = url.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 100);
         const screenshotPath = path.join(screenshotsDir, `repair_${sanitizedUrl}_${Date.now()}.jpg`);
-        
+
         await capturePostScreenshot(page, screenshotPath);
         const optimizedPath = await optimizeImage(screenshotPath);
 
@@ -167,13 +172,13 @@ async function tryNewScreenshotAndAI(url, field) {
 
         // Extract with AI
         const result = await tryAIFromScreenshot(optimizedPath, field);
-        
+
         // Cleanup
         try {
             if (screenshotPath !== optimizedPath) {
                 await fs.unlink(screenshotPath);
             }
-        } catch {}
+        } catch { }
 
         return result;
     } catch (error) {
@@ -181,7 +186,7 @@ async function tryNewScreenshotAndAI(url, field) {
         if (browser) {
             try {
                 await browser.close();
-            } catch {}
+            } catch { }
         }
         return null;
     }
@@ -322,7 +327,7 @@ export async function repairField(spreadsheetId, sheetName, field, mainWindow) {
                 if (field === 'date' && value) {
                     finalValue = formatDate(value);
                 }
-                
+
                 updates.push({
                     range: `${sheetName}!${getColumnLetter(targetIndex)}${i + 1}`,
                     values: [[finalValue]]
@@ -358,7 +363,7 @@ export async function repairField(spreadsheetId, sheetName, field, mainWindow) {
 export async function repairAllFields(spreadsheetId, sheetName, mainWindow) {
     log('Starting repair for ALL fields', 'info');
     shouldStopRepair = false; // Reset stop flag
-    
+
     const fields = ['group', 'likes', 'comments', 'shares', 'content', 'sender', 'date'];
     let totalRepaired = 0;
     const results = [];

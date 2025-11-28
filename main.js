@@ -19,6 +19,63 @@ const { google } = require('googleapis');
 const { readFileSync, writeFileSync } = require('fs');
 require('dotenv').config();
 
+// 🔄 Auto-Updater Configuration
+const { autoUpdater } = require('electron-updater');
+const log = require('electron-log');
+
+// Configure auto-updater logging
+autoUpdater.logger = log;
+autoUpdater.logger.transports.file.level = 'info';
+log.info('App starting...');
+
+// Auto-updater event handlers
+autoUpdater.on('checking-for-update', () => {
+  log.info('Checking for updates...');
+});
+
+autoUpdater.on('update-available', (info) => {
+  log.info('Update available:', info.version);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      title: 'עדכון זמין',
+      message: `גרסה חדשה ${info.version} זמינה להורדה.`,
+      detail: 'העדכון מתחיל להירדות ברקע...',
+      buttons: ['אישור']
+    });
+  }
+});
+
+autoUpdater.on('update-not-available', (info) => {
+  log.info('Update not available:', info.version);
+});
+
+autoUpdater.on('error', (err) => {
+  log.error('Error in auto-updater:', err);
+});
+
+autoUpdater.on('download-progress', (progressObj) => {
+  let message = `מוריד עדכון: ${progressObj.percent.toFixed(1)}%`;
+  log.info(message);
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+  log.info('Update downloaded:', info.version);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      title: 'עדכון מוכן',
+      message: 'עדכון הותקן בהצלחה.',
+      detail: 'האפליקציה תופעל מחדש כעת להפעלת העדכון.',
+      buttons: ['הפעל מחדש', 'מאוחר יותר']
+    }).then((result) => {
+      if (result.response === 0) {
+        autoUpdater.quitAndInstall();
+      }
+    });
+  }
+});
+
 const SETTINGS_PATH = path.join(app.getPath('userData'), 'settings.json');
 
 // Settings handlers
@@ -493,6 +550,11 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
   initializeWebSocket();
+
+  // 🔄 Check for updates after app is ready (with delay to ensure window is shown)
+  setTimeout(() => {
+    autoUpdater.checkForUpdatesAndNotify();
+  }, 3000);
 });
 
 app.on("window-all-closed", () => {

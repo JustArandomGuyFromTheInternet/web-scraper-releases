@@ -4,19 +4,17 @@ import fs from 'fs/promises';
 
 /**
  * Optimizes an image for AI processing by:
- * - Resizing to a maximum width while maintaining aspect ratio
+ * - Tiered resizing based on image size
  * - Converting to JPEG with quality compression
  * - Reducing file size while maintaining readability
  * 
  * @param {string} inputPath - Path to the input image.
  * @param {Object} options - Optimization options
- * @param {number} options.maxWidth - Maximum width in pixels (default: 800)
- * @param {number} options.quality - JPEG quality 0-100 (default: 60)
+ * @param {number} options.quality - JPEG quality 0-100 (default: 45)
  * @returns {Promise<string>} - Path to the optimized image.
  */
 export async function optimizeImage(inputPath, options = {}) {
-    const maxWidth = options.maxWidth || 800;  // Reduced from 1200 to 800
-    const quality = options.quality || 60;      // Reduced from 75 to 60
+    const quality = options.quality || 45;
 
     try {
         console.log(`📉 מתחיל אופטימיזציה של תמונה: ${inputPath}`);
@@ -31,16 +29,32 @@ export async function optimizeImage(inputPath, options = {}) {
         const parsedPath = path.parse(inputPath);
         const outputPath = path.join(parsedPath.dir, `${parsedPath.name}_optimized.jpg`);
 
-        // Resize and compress
+        // 🎯 TIERED OPTIMIZATION: הפחתה מדורגת לפי גודל
         let pipeline = sharp(inputPath);
+        const LARGE_THRESHOLD = 1800;  // מסך מלא
+        const MEDIUM_THRESHOLD = 800;   // פוסט בינוני
 
-        if (originalWidth > maxWidth) {
-            pipeline = pipeline.resize(maxWidth, null, {
+        if (originalWidth > LARGE_THRESHOLD) {
+            // תמונה גדולה (מסך מלא) - הקטן ב-40%
+            const newWidth = Math.round(originalWidth * 0.6);  // 40% הפחתה = 60% נותר
+            const newHeight = Math.round(originalHeight * 0.6);
+            pipeline = pipeline.resize(newWidth, newHeight, {
                 withoutEnlargement: true,
                 fit: 'inside'
             });
-            const newHeight = Math.round((originalHeight / originalWidth) * maxWidth);
-            console.log(`   שינוי גודל ל: ${maxWidth}x${newHeight}`);
+            console.log(`   🖥️ מסך מלא - הקטנה 40%: ${originalWidth}x${originalHeight} → ${newWidth}x${newHeight}`);
+        } else if (originalWidth > MEDIUM_THRESHOLD) {
+            // תמונה בינונית (פוסט רגיל) - הקטן ב-30%
+            const newWidth = Math.round(originalWidth * 0.7);  // 30% הפחתה = 70% נותר
+            const newHeight = Math.round(originalHeight * 0.7);
+            pipeline = pipeline.resize(newWidth, newHeight, {
+                withoutEnlargement: true,
+                fit: 'inside'
+            });
+            console.log(`   📱 פוסט בינוני - הקטנה 30%: ${originalWidth}x${originalHeight} → ${newWidth}x${newHeight}`);
+        } else {
+            // תמונה קטנה - שמור על גודל מקורי
+            console.log(`   📷 תמונה קטנה - שומר על גודל מקורי: ${originalWidth}x${originalHeight}`);
         }
 
         await pipeline

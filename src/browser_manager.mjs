@@ -26,7 +26,7 @@ async function loadConfig() {
 }
 
 export async function launchBrowser() {
-    await loadConfig(); // Load config first
+    await loadConfig();
     log('Launching browser...', 'info');
 
     // Try multiple launch strategies
@@ -47,7 +47,8 @@ export async function launchBrowser() {
                     '--disable-setuid-sandbox',
                     '--disable-dev-shm-usage',
                     '--disable-accelerated-2d-canvas',
-                    '--disable-gpu'
+                    '--disable-gpu',
+                    '--force-device-scale-factor=0.85',  // 🎯 זה יוצר zoom out!
                 ]
             };
 
@@ -89,7 +90,8 @@ export async function launchBrowser() {
                     '--disable-setuid-sandbox',
                     '--disable-dev-shm-usage',
                     '--disable-accelerated-2d-canvas',
-                    '--disable-gpu'
+                    '--disable-gpu',
+                    '--force-device-scale-factor=0.85',  // 🎯 זום אאוט 85%
                 ]
             });
         },
@@ -103,7 +105,8 @@ export async function launchBrowser() {
                     '--disable-setuid-sandbox',
                     '--disable-dev-shm-usage',
                     '--disable-accelerated-2d-canvas',
-                    '--disable-gpu'
+                    '--disable-gpu',
+                    '--force-device-scale-factor=0.85',  // 🎯 זום אאוט 85%
                 ]
             });
         }
@@ -114,7 +117,7 @@ export async function launchBrowser() {
         try {
             log(`Trying launch strategy ${i + 1}/${strategies.length}...`, 'info');
             const browser = await strategies[i]();
-            log(`Browser launched successfully (strategy ${i + 1})`, 'success');
+            log(`Browser launched successfully (strategy ${i + 1}) with 85% zoom`, 'success');
             return browser;
         } catch (error) {
             lastError = error;
@@ -132,7 +135,15 @@ export async function launchBrowser() {
 
 export async function newConfiguredPage(browser) {
     const page = await browser.newPage();
-    await page.setViewport({ width: 1920, height: 1080 });
+
+    // 🎯 הגדר viewport גדול יותר כדי לנצל את ה-zoom out
+    // במקום 1920x1080, נשתמש ב-2258x1270 (בערך) - זה ייתן לנו פי 1.17 תוכן!
+    await page.setViewport({
+        width: 2258,   // 1920 / 0.85
+        height: 1270,  // 1080 / 0.85
+        deviceScaleFactor: 1  // שמור על 1 כי ה-zoom כבר בהגדרות הדפדפן
+    });
+
     await page.setExtraHTTPHeaders({ 'Accept-Language': 'he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7' });
 
     // Anti-detection
@@ -140,6 +151,14 @@ export async function newConfiguredPage(browser) {
         Object.defineProperty(navigator, 'webdriver', { get: () => false });
         Object.defineProperty(navigator, 'languages', { get: () => ['he-IL', 'he', 'en-US', 'en'] });
         Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+    });
+
+    // 🎯 אופציה נוספת: הגדר zoom דרך CSS (גיבוי אם --force-device-scale-factor לא עובד)
+    await page.evaluateOnNewDocument(() => {
+        // זה יוסיף zoom: 0.85 ל-body אחרי טעינת הדף
+        document.addEventListener('DOMContentLoaded', () => {
+            document.body.style.zoom = '0.85';
+        });
     });
 
     return page;
@@ -154,6 +173,12 @@ export async function navigateWithRetry(browser, url, name) {
         try {
             log(`Navigating to: ${name || url} (Attempt ${attempts + 1})`, 'info');
             await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+            // 🎯 אחרי הטעינה, ודא שה-zoom מוחל
+            await page.evaluate(() => {
+                document.body.style.zoom = '0.85';
+            });
+
             return page;
         } catch (e) {
             attempts++;
@@ -161,7 +186,7 @@ export async function navigateWithRetry(browser, url, name) {
             if (page) await page.close();
             if (attempts >= maxAttempts) throw e;
 
-            page = await newConfiguredPage(browser); // New page for retry
+            page = await newConfiguredPage(browser);
         }
     }
     return page;

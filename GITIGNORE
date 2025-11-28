@@ -29,8 +29,3 @@ Thumbs.db
 *.zip
 *.tmp
 *.bak
-
-chrome-profile/
-visual_engine/screen_shots/*.jpg
-visual_engine/screen_shots/*.png
-out_new/

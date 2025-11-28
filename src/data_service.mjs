@@ -128,8 +128,7 @@ export async function appendSheetsRow({ url, sender_name, post_date, group_name,
                 summary,
                 validation,
                 likes: likes || 0,
-                comments: comments || 0,
-                shares: shares || 0
+                comments: comments || 0
             });
             log('Synced to Google Sheets', 'success');
         } catch (e) {
