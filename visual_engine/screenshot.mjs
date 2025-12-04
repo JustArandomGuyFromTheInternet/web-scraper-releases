@@ -113,19 +113,19 @@ export async function capturePostScreenshot(page, outputPath) {
                     await element.scrollIntoView();
                     await new Promise(r => setTimeout(r, 300));
 
-                    // 🎯 הגבלת גובה מקסימלי כדי למנוע תמונות ארוכות מדי
-                    const MAX_HEIGHT = 4000; // מקסימום 4000px גובה
+                    // 🎯 Limit max height to prevent overly long images
+                    const MAX_HEIGHT = 4000; // Maximum 4000px height
                     const captureBox = await element.boundingBox();
 
                     if (captureBox.height > MAX_HEIGHT) {
-                        console.log(`⚠️ תמונה ארוכה מדי (${Math.round(captureBox.height)}px) - מגביל ל-${MAX_HEIGHT}px`);
+                        console.log(`⚠️ Image too long (${Math.round(captureBox.height)}px) - limiting to ${MAX_HEIGHT}px`);
                         await element.screenshot({
                             path: outputPath,
                             type: 'jpeg',
                             quality: 80,
                             clip: {
-                                x: captureBox.x,
-                                y: captureBox.y,
+                                x: Math.max(0, captureBox.x),
+                                y: Math.max(0, captureBox.y),
                                 width: captureBox.width,
                                 height: MAX_HEIGHT
                             }
@@ -150,7 +150,7 @@ export async function capturePostScreenshot(page, outputPath) {
         // Fallback: limited page screenshot if S09 fails
         console.warn('⚠️ S09 strategy not found. Taking limited screenshot as fallback.');
 
-        // 🎯 צלם רק את החלק העליון של הדף (מקסימום 4000px)
+        // 🎯 Capture only top part of page (max 4000px)
         const viewport = await page.viewport();
         const MAX_HEIGHT = 4000;
 

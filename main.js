@@ -1,15 +1,3 @@
-// Suppress deprecation warnings (punycode is used by dependencies, not our code)
-process.removeAllListeners('warning');
-process.on('warning', (warning) => {
-  // Only suppress punycode deprecation warnings
-  if (warning.name === 'DeprecationWarning' && warning.message.includes('punycode')) {
-    // Silently ignore - this is from dependencies (googleapis/puppeteer)
-    return;
-  }
-  // Show other warnings
-  console.warn(warning.name, warning.message);
-});
-
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
@@ -28,6 +16,15 @@ autoUpdater.logger = log;
 autoUpdater.logger.transports.file.level = 'info';
 log.info('App starting...');
 
+// Suppress Punycode warning
+process.removeAllListeners('warning');
+process.on('warning', (warning) => {
+  if (warning.name === 'DeprecationWarning' && warning.message.includes('punycode')) {
+    return;
+  }
+  console.warn(warning);
+});
+
 // Auto-updater event handlers
 autoUpdater.on('checking-for-update', () => {
   log.info('Checking for updates...');
@@ -38,10 +35,10 @@ autoUpdater.on('update-available', (info) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     dialog.showMessageBox(mainWindow, {
       type: 'info',
-      title: 'עדכון זמין',
-      message: `גרסה חדשה ${info.version} זמינה להורדה.`,
-      detail: 'העדכון מתחיל להירדות ברקע...',
-      buttons: ['אישור']
+      title: 'Update Available',
+      message: `New version ${info.version} is available.`,
+      detail: 'Downloading update in background...',
+      buttons: ['OK']
     });
   }
 });
@@ -55,7 +52,7 @@ autoUpdater.on('error', (err) => {
 });
 
 autoUpdater.on('download-progress', (progressObj) => {
-  let message = `מוריד עדכון: ${progressObj.percent.toFixed(1)}%`;
+  let message = `Downloading update: ${progressObj.percent.toFixed(1)}%`;
   log.info(message);
 });
 
@@ -64,10 +61,10 @@ autoUpdater.on('update-downloaded', (info) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     dialog.showMessageBox(mainWindow, {
       type: 'info',
-      title: 'עדכון מוכן',
-      message: 'עדכון הותקן בהצלחה.',
-      detail: 'האפליקציה תופעל מחדש כעת להפעלת העדכון.',
-      buttons: ['הפעל מחדש', 'מאוחר יותר']
+      title: 'Update Ready',
+      message: 'Update installed successfully.',
+      detail: 'The app will restart now to apply the update.',
+      buttons: ['Restart', 'Later']
     }).then((result) => {
       if (result.response === 0) {
         autoUpdater.quitAndInstall();
@@ -92,23 +89,30 @@ ipcMain.handle('save-settings', async (event, settings) => {
   try {
     await fs.writeFile(SETTINGS_PATH, JSON.stringify(settings, null, 2));
 
-    // Update .env file with API key
+    // Update .env file with API key (Best effort - might fail in Program Files)
     if (settings.apiKey) {
-      const envPath = path.join(process.cwd(), '.env');
-      let envContent = '';
+      process.env.GEMINI_API_KEY = settings.apiKey; // Always update runtime env
+
       try {
-        envContent = readFileSync(envPath, 'utf8');
-      } catch { }
+        const envPath = path.join(app.getAppPath(), '.env'); // Use app path
+        let envContent = '';
+        try {
+          envContent = await fs.readFile(envPath, 'utf8');
+        } catch { }
 
-      // Update or add GEMINI_API_KEY
-      if (envContent.includes('GEMINI_API_KEY=')) {
-        envContent = envContent.replace(/GEMINI_API_KEY=.*/g, `GEMINI_API_KEY=${settings.apiKey}`);
-      } else {
-        envContent += `\nGEMINI_API_KEY=${settings.apiKey}\n`;
+        if (envContent.includes('GEMINI_API_KEY=')) {
+          envContent = envContent.replace(/GEMINI_API_KEY=.*/g, `GEMINI_API_KEY=${settings.apiKey}`);
+        } else {
+          envContent += `\nGEMINI_API_KEY=${settings.apiKey}\n`;
+        }
+
+        // Only try to write if we are not in an ASAR (dev mode) or have permissions
+        if (!app.isPackaged) {
+          await fs.writeFile(envPath, envContent);
+        }
+      } catch (err) {
+        console.log('Could not write to .env file (expected in production):', err.message);
       }
-
-      writeFileSync(envPath, envContent);
-      process.env.GEMINI_API_KEY = settings.apiKey;
     }
 
     return { success: true };
@@ -130,7 +134,7 @@ ipcMain.handle('check-api-status', async () => {
   };
 
   try {
-    const credentials = readFileSync(CREDENTIALS_PATH, 'utf8');
+    const credentials = await fs.readFile(CREDENTIALS_PATH, 'utf8');
     status.credentials = credentials.length > 0;
   } catch (error) {
     status.credentials = false;
@@ -171,6 +175,43 @@ ipcMain.handle('browse-file', async () => {
   throw new Error('No file selected');
 });
 
+// Load OAuth Credentials file
+ipcMain.handle('load-oauth-credentials', async () => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      title: 'Select oauth_credentials.json file',
+      defaultPath: app.getPath('downloads'),
+      filters: [
+        { name: 'JSON Files', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+
+    if (result.canceled || !result.filePaths.length) {
+      throw new Error('No file selected');
+    }
+
+    const sourceFile = result.filePaths[0];
+    const targetFile = path.join(app.getPath('userData'), 'oauth_credentials.json');
+
+    // Copy file to userData
+    await fs.copyFile(sourceFile, targetFile);
+
+    console.log(`✅ OAuth credentials copied to: ${targetFile}`);
+
+    return {
+      success: true,
+      message: 'OAuth credentials loaded successfully!',
+      path: targetFile
+    };
+  } catch (error) {
+    console.error('Failed to load OAuth credentials:', error);
+    throw new Error(`Failed to load OAuth credentials: ${error.message}`);
+  }
+});
+
+
 // Run scraping process
 ipcMain.handle('run-scrape', async (event, payload) => {
   try {
@@ -183,7 +224,15 @@ ipcMain.handle('run-scrape', async (event, payload) => {
     }
 
     // Use the new scrape controller
-    const scriptPath = path.join(__dirname, 'src', 'scrape_controller.mjs');
+    // In packaged app, .mjs files are in asar.unpacked
+    let scriptPath;
+    if (app.isPackaged) {
+      // In production: use .asar.unpacked path
+      scriptPath = path.join(__dirname.replace('app.asar', 'app.asar.unpacked'), 'src', 'scrape_controller.mjs');
+    } else {
+      // In development: regular path
+      scriptPath = path.join(__dirname, 'src', 'scrape_controller.mjs');
+    }
 
     // Support legacy array-of-links or new payload { links, spreadsheetId, sheetName, smartTableSync }
     let links = [];
@@ -202,19 +251,40 @@ ipcMain.handle('run-scrape', async (event, payload) => {
       throw new Error('Invalid payload for run-scrape. Expected links array or { links, spreadsheetId, sheetName }');
     }
 
-    // Write links to links.json file
+    // Write links to links.json file in userData to avoid permission issues
     const linksData = links.map(url => ({ url, name: '', date: '' }));
-    const linksPath = path.join(process.cwd(), 'links.json');
+    const userDataPath = app.getPath('userData');
+    const linksPath = path.join(userDataPath, 'links.json');
     await fs.writeFile(linksPath, JSON.stringify(linksData, null, 2));
     console.log(`✅ Wrote ${linksData.length} links to ${linksPath}`);
 
     // Build environment for child process so it can read SPREADSHEET_ID / SHEET_NAME
     const envVars = Object.assign({}, process.env);
+
+    // Pass explicit paths to child process to avoid process.cwd() issues
+    envVars.LINKS_FILE = linksPath;
+    envVars.SCREENSHOTS_DIR = path.join(userDataPath, 'screenshots');
+    envVars.OAUTH_CREDENTIALS_PATH = process.env.OAUTH_CREDENTIALS_PATH;
+    envVars.GOOGLE_TOKEN_PATH = process.env.GOOGLE_TOKEN_PATH;
+
+    // Ensure Chrome profile is in a writable location (userData)
+    envVars.USER_DATA_DIR = path.join(userDataPath, 'chrome-profile');
+
+    // Resolve output directory: if relative, make it absolute in userData
+    let outputDir = payload.savePath || path.join(userDataPath, 'output');
+    if (outputDir.startsWith('.')) {
+      outputDir = path.join(userDataPath, 'output');
+    }
+    envVars.OUTPUT_DIR = outputDir;
+
     console.log('\n=== MAIN.JS DEBUG ===');
     console.log('Received payload:', JSON.stringify(payload, null, 2));
     console.log('spreadsheetId:', spreadsheetId);
     console.log('sheetName:', sheetName);
     console.log('visualMode:', payload.visualMode);
+    console.log('LINKS_FILE:', envVars.LINKS_FILE);
+    console.log('SCREENSHOTS_DIR:', envVars.SCREENSHOTS_DIR);
+    console.log('OUTPUT_DIR:', envVars.OUTPUT_DIR);
     console.log('=====================\n');
 
     if (spreadsheetId) envVars.SPREADSHEET_ID = spreadsheetId;
@@ -330,7 +400,8 @@ ipcMain.on('stop-scraping', () => {
 // Repair Data Handler (legacy - for backward compatibility)
 ipcMain.handle('repair-data', async (event, payload) => {
   try {
-    const { repairSheetData } = await import('./src/repair_manager.mjs');
+    const modulePath = 'file://' + path.join(__dirname, 'src', 'repair_manager.mjs').replace(/\\/g, '/');
+    const { repairSheetData } = await import(modulePath);
     const spreadsheetId = payload?.spreadsheetId || process.env.SPREADSHEET_ID;
     const sheetName = payload?.sheetName || process.env.SHEET_NAME || 'גיליון1';
 
@@ -345,7 +416,8 @@ ipcMain.handle('repair-data', async (event, payload) => {
 ipcMain.handle('repair-field', async (event, payload) => {
   try {
     repairProcess = { type: 'field', field: payload?.field }; // Mark repair as running
-    const { repairField } = await import('./src/repair_manager.mjs');
+    const modulePath = 'file://' + path.join(__dirname, 'src', 'repair_manager.mjs').replace(/\\/g, '/');
+    const { repairField } = await import(modulePath);
     const spreadsheetId = payload?.spreadsheetId || process.env.SPREADSHEET_ID;
     const sheetName = payload?.sheetName || process.env.SHEET_NAME || 'גיליון1';
     const field = payload?.field; // 'likes', 'comments', 'shares', 'content', 'sender', 'date', 'group'
@@ -368,7 +440,8 @@ ipcMain.handle('repair-field', async (event, payload) => {
 ipcMain.handle('repair-all-fields', async (event, payload) => {
   try {
     repairProcess = { type: 'all' }; // Mark repair as running
-    const { repairAllFields } = await import('./src/repair_manager.mjs');
+    const modulePath = 'file://' + path.join(__dirname, 'src', 'repair_manager.mjs').replace(/\\/g, '/');
+    const { repairAllFields } = await import(modulePath);
     const spreadsheetId = payload?.spreadsheetId || process.env.SPREADSHEET_ID;
     const sheetName = payload?.sheetName || process.env.SHEET_NAME || 'גיליון1';
 
@@ -384,7 +457,15 @@ ipcMain.handle('repair-all-fields', async (event, payload) => {
 // Delete screenshots handler
 ipcMain.handle('delete-screenshots', async () => {
   try {
-    const screenshotsDir = path.join(process.cwd(), 'visual_engine', 'screen_shots');
+    const screenshotsDir = path.join(app.getPath('userData'), 'screenshots');
+
+    // Check if directory exists first
+    try {
+      await fs.access(screenshotsDir);
+    } catch {
+      return { success: true, count: 0 };
+    }
+
     const files = await fs.readdir(screenshotsDir);
     let count = 0;
     for (const file of files) {
@@ -402,7 +483,8 @@ ipcMain.handle('delete-screenshots', async () => {
 // Open screenshots folder handler
 ipcMain.handle('open-screenshots-folder', async () => {
   try {
-    const screenshotsDir = path.join(process.cwd(), 'visual_engine', 'screen_shots');
+    const screenshotsDir = path.join(app.getPath('userData'), 'screenshots');
+    await fs.mkdir(screenshotsDir, { recursive: true }); // Ensure it exists
     await shell.openPath(screenshotsDir);
     return { success: true };
   } catch (error) {
@@ -414,12 +496,26 @@ ipcMain.handle('open-screenshots-folder', async () => {
 // Test Google Sheets connection with OAuth
 ipcMain.handle('test-sheets-connection', async (event, { url }) => {
   try {
+    const modulePath = 'file://' + path.join(__dirname, 'sheets_oauth.mjs').replace(/\\/g, '/');
+
+    // If no URL provided, just check if authenticated
     if (!url) {
-      throw new Error('URL is required');
+      const { isAuthenticated } = await import(modulePath);
+      const authenticated = await isAuthenticated();
+
+      if (authenticated) {
+        return {
+          success: true,
+          title: 'Authenticated',
+          message: 'Successfully connected to Google'
+        };
+      } else {
+        throw new Error('Not authenticated with Google. Please click "Connect to Google" button to authenticate.');
+      }
     }
 
-    // Try OAuth first
-    const { testConnection } = await import('./sheets_oauth.mjs');
+    // If URL provided, test actual connection
+    const { testConnection } = await import(modulePath);
     const result = await testConnection(url);
 
     return {
@@ -439,10 +535,28 @@ ipcMain.handle('test-sheets-connection', async (event, { url }) => {
   }
 });
 
+// Authenticate with Google OAuth
+ipcMain.handle('authenticate-google', async () => {
+  try {
+    console.log('Starting Google OAuth authentication...');
+    const modulePath = 'file://' + path.join(__dirname, 'sheets_oauth.mjs').replace(/\\/g, '/');
+    const { getAuthenticatedClient } = await import(modulePath);
+
+    // This will trigger OAuth flow if no valid token exists
+    await getAuthenticatedClient();
+
+    return { success: true, message: 'Successfully authenticated with Google' };
+  } catch (error) {
+    console.error('OAuth authentication error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // Check if user is authenticated with OAuth
 ipcMain.handle('is-authenticated', async () => {
   try {
-    const { isAuthenticated } = await import('./sheets_oauth.mjs');
+    const modulePath = 'file://' + path.join(__dirname, 'sheets_oauth.mjs').replace(/\\/g, '/');
+    const { isAuthenticated } = await import(modulePath);
     return await isAuthenticated();
   } catch (error) {
     return false;
@@ -453,7 +567,8 @@ ipcMain.handle('is-authenticated', async () => {
 ipcMain.handle('force-google-auth', async () => {
   try {
     console.log('Starting forced Google OAuth...');
-    const { getAuthenticatedClient } = await import('./sheets_oauth.mjs');
+    const modulePath = 'file://' + path.join(__dirname, 'sheets_oauth.mjs').replace(/\\/g, '/');
+    const { getAuthenticatedClient } = await import(modulePath);
 
     // This will trigger OAuth flow if no token exists
     await getAuthenticatedClient();
@@ -468,7 +583,8 @@ ipcMain.handle('force-google-auth', async () => {
 // Logout from OAuth
 ipcMain.handle('logout-sheets', async () => {
   try {
-    const { logout } = await import('./sheets_oauth.mjs');
+    const modulePath = 'file://' + path.join(__dirname, 'sheets_oauth.mjs').replace(/\\/g, '/');
+    const { logout } = await import(modulePath);
     return await logout();
   } catch (error) {
     return { success: false, error: error.message };
@@ -478,7 +594,8 @@ ipcMain.handle('logout-sheets', async () => {
 // Open browser for OAuth
 ipcMain.handle('open-browser', async () => {
   try {
-    const { openBrowser } = await import('./open_browser.mjs');
+    const modulePath = 'file://' + path.join(__dirname, 'open_browser.mjs').replace(/\\/g, '/');
+    const { openBrowser } = await import(modulePath);
 
     // Run in background - don't wait for it to complete
     openBrowser().catch(error => {
@@ -505,7 +622,7 @@ let googleSheetsClient = null;
 
 // Google Sheets configuration
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
-const CREDENTIALS_PATH = path.join(process.cwd(), 'credentials.json');
+const CREDENTIALS_PATH = path.join(app.getPath('userData'), 'credentials.json'); // Use userData for credentials
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -516,7 +633,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(process.cwd(), "preload.js"),
+      preload: path.join(__dirname, "preload.js"), // Use __dirname
     },
     icon: path.join(__dirname, "icon.png"),
     titleBarStyle: 'default',
@@ -547,7 +664,91 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // OAuth Paths - only configure in production (packaged app)
+  if (app.isPackaged) {
+    const OAUTH_CREDENTIALS_PATH = path.join(app.getPath('userData'), 'oauth_credentials.json');
+    const GOOGLE_TOKEN_PATH = path.join(app.getPath('userData'), 'token.json');
+
+    // Auto-setup: Copy oauth_credentials.json from resources to userData if it doesn't exist
+    try {
+      await fs.access(OAUTH_CREDENTIALS_PATH);
+      console.log('✅ OAuth credentials already exist in userData');
+    } catch {
+      // File doesn't exist in userData, try to copy from resources
+      try {
+        const resourcesPath = path.join(process.resourcesPath, 'oauth_credentials.json');
+
+        console.log(`📋 Attempting to copy OAuth credentials from: ${resourcesPath}`);
+
+        await fs.access(resourcesPath); // Check if source exists
+        await fs.copyFile(resourcesPath, OAUTH_CREDENTIALS_PATH);
+
+        console.log(`✅ OAuth credentials auto-copied to: ${OAUTH_CREDENTIALS_PATH}`);
+      } catch (copyError) {
+        console.warn('⚠️ Could not auto-copy OAuth credentials. User will need to provide the file manually.');
+        console.warn('   This is expected if oauth_credentials.json was not included in the build.');
+      }
+    }
+
+    // Fix redirect_uris if needed (ensure :3000 port)
+    try {
+      const credContent = await fs.readFile(OAUTH_CREDENTIALS_PATH, 'utf8');
+      const credentials = JSON.parse(credContent);
+
+      if (credentials.installed && credentials.installed.redirect_uris) {
+        let fixed = false;
+        credentials.installed.redirect_uris = credentials.installed.redirect_uris.map(uri => {
+          if (uri === 'http://localhost' || uri === 'http://localhost/') {
+            fixed = true;
+            return 'http://localhost:3000';
+          }
+          return uri;
+        });
+
+        if (fixed) {
+          await fs.writeFile(OAUTH_CREDENTIALS_PATH, JSON.stringify(credentials, null, 2));
+          console.log('✅ Fixed redirect_uris to include port :3000');
+        }
+      }
+    } catch (fixError) {
+      console.warn('⚠️ Could not auto-fix redirect_uris:', fixError.message);
+    }
+
+    // Set env vars for the current process (so sheets_oauth.mjs sees them)
+    process.env.OAUTH_CREDENTIALS_PATH = OAUTH_CREDENTIALS_PATH;
+    process.env.GOOGLE_TOKEN_PATH = GOOGLE_TOKEN_PATH;
+
+    console.log('🔧 OAuth paths configured (PRODUCTION):');
+    console.log('   OAUTH_CREDENTIALS_PATH:', OAUTH_CREDENTIALS_PATH);
+    console.log('   GOOGLE_TOKEN_PATH:', GOOGLE_TOKEN_PATH);
+  } else {
+    // Development mode - still set env vars for userData paths
+    const userDataPath = app.getPath('userData');
+    const OAUTH_CREDENTIALS_PATH = path.join(userDataPath, 'oauth_credentials.json');
+    const GOOGLE_TOKEN_PATH = path.join(userDataPath, 'token.json');
+
+    process.env.OAUTH_CREDENTIALS_PATH = OAUTH_CREDENTIALS_PATH;
+    process.env.GOOGLE_TOKEN_PATH = GOOGLE_TOKEN_PATH;
+
+    console.log('🔧 Development mode: OAuth will use userData files');
+    console.log('   OAUTH_CREDENTIALS_PATH:', OAUTH_CREDENTIALS_PATH);
+    console.log('   GOOGLE_TOKEN_PATH:', GOOGLE_TOKEN_PATH);
+  }
+
+  // Create required directories if they don't exist
+  const userDataPath = app.getPath('userData');
+  const screenshotsDir = path.join(userDataPath, 'screenshots');
+  const outputDir = path.join(userDataPath, 'output');
+
+  try {
+    await fs.mkdir(screenshotsDir, { recursive: true });
+    await fs.mkdir(outputDir, { recursive: true });
+    console.log('✅ Required directories created/verified');
+  } catch (error) {
+    console.error('❌ Failed to create directories:', error);
+  }
+
   createWindow();
   initializeWebSocket();
 

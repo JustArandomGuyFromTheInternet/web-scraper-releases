@@ -40,6 +40,11 @@
     "directories": {
       "output": "dist"
     },
+    "asarUnpack": [
+      "src/**/*",
+      "visual_engine/**/*",
+      "*.mjs"
+    ],
     "files": [
       "**/*",
       "!**/*.md",
@@ -48,6 +53,15 @@
       "!out_new/**",
       "!dist/**",
       "!visual_engine/screen_shots/**"
+    ],
+    "extraResources": [
+      {
+        "from": "oauth_credentials.json",
+        "to": "oauth_credentials.json",
+        "filter": [
+          "**/*"
+        ]
+      }
     ],
     "win": {
       "target": "nsis",
@@ -59,8 +73,6 @@
       "allowElevation": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "installerIcon": "ICON-modified.png",
-      "uninstallerIcon": "ICON-modified.png",
       "deleteAppDataOnUninstall": false
     }
   }

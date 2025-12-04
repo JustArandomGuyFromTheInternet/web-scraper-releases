@@ -16,6 +16,14 @@ const app = {
         log.innerHTML = `<span class="timestamp">[${timestamp}]</span> ${message}`;
         logViewer.appendChild(log);
         logViewer.scrollTop = logViewer.scrollHeight;
+
+        // Auto-update progress bar from log messages
+        const progressMatch = message.match(/\[(\d+)\/(\d+)\]/);
+        if (progressMatch) {
+            const current = parseInt(progressMatch[1]);
+            const total = parseInt(progressMatch[2]);
+            this.updateProgress(current, total);
+        }
     },
 
     clearLog: function () {
@@ -218,9 +226,10 @@ const app = {
         if (linksInput) {
             linksInput.addEventListener("input", () => {
                 setTimeout(() => this.parseLinks(), 300);
-            });
+            })
             console.log('✅ Links input listener added');
         }
+
 
         // Settings button
         const settingsBtn = document.getElementById('settingsBtn');
@@ -258,12 +267,22 @@ const app = {
                             apiKeyStatus.className = 'status-badge status-connected';
                             apiKeyStatus.textContent = 'Configured';
                         }
-                        // Load Column Preferences
-                        if (settings.columns) {
-                            for (const [key, checkbox] of Object.entries(colCheckboxes)) {
-                                if (checkbox && settings.columns[key] !== undefined) {
-                                    checkbox.checked = settings.columns[key];
-                                }
+                        // Load Column Preferences with defaults
+                        const defaultColumns = {
+                            sender: true,
+                            group: true,
+                            date: true,
+                            content: true,
+                            summary: true,
+                            likes: true,
+                            comments: true,
+                            shares: true
+                        };
+
+                        const columns = settings.columns || defaultColumns;
+                        for (const [key, checkbox] of Object.entries(colCheckboxes)) {
+                            if (checkbox) {
+                                checkbox.checked = columns[key] !== undefined ? columns[key] : defaultColumns[key];
                             }
                         }
                     } catch (error) {
@@ -631,20 +650,30 @@ const app = {
             loginBtn.addEventListener("click", async () => {
                 this.addLog("info", "Opening authentication...");
                 try {
-                    const sheetsUrl = document.getElementById("sheetsUrl")?.value || "https://docs.google.com/spreadsheets/d/test";
-                    const result = await window.electronAPI.testSheetsConnection({ url: sheetsUrl });
-                    this.addLog("success", "Authentication successful!");
+                    // Call the authentication handler, not test-sheets-connection
+                    const result = await window.electronAPI.authenticateGoogle();
 
-                    // Update status badges
-                    const authStatus = document.getElementById('authStatus');
-                    const sheetsStatus = document.getElementById('sheetsStatus');
-                    if (authStatus) {
-                        authStatus.className = 'status-badge status-connected';
-                        authStatus.textContent = 'CONNECTED';
-                    }
-                    if (sheetsStatus) {
-                        sheetsStatus.className = 'status-badge status-connected';
-                        sheetsStatus.textContent = 'CONNECTED';
+                    if (result.success) {
+                        this.addLog("success", "Authentication successful!");
+
+                        // Update status badges
+                        const authStatus = document.getElementById('authStatus');
+                        const sheetsStatus = document.getElementById('sheetsStatus');
+                        if (authStatus) {
+                            authStatus.className = 'status-badge status-connected';
+                            authStatus.textContent = 'CONNECTED';
+                        }
+                        if (sheetsStatus) {
+                            sheetsStatus.className = 'status-badge status-connected';
+                            sheetsStatus.textContent = 'CONNECTED';
+                        }
+
+                        // Toggle buttons
+                        loginBtn.style.display = 'none';
+                        const logoutBtn = document.getElementById('logoutBtn');
+                        if (logoutBtn) logoutBtn.style.display = 'inline-block';
+                    } else {
+                        this.addLog("error", `Authentication failed: ${result.error}`);
                     }
                 } catch (error) {
                     this.addLog("error", `Authentication error: ${error.message}`);
@@ -654,11 +683,11 @@ const app = {
                     const sheetsStatus = document.getElementById('sheetsStatus');
                     if (authStatus) {
                         authStatus.className = 'status-badge status-disconnected';
-                        authStatus.textContent = 'Not connected';
+                        authStatus.textContent = 'NOT CONNECTED';
                     }
                     if (sheetsStatus) {
                         sheetsStatus.className = 'status-badge status-disconnected';
-                        sheetsStatus.textContent = 'Not connected';
+                        sheetsStatus.textContent = 'NOT CONNECTED';
                     }
                 }
             });
@@ -668,13 +697,69 @@ const app = {
         const logoutBtn = document.getElementById("logoutBtn");
         if (logoutBtn) {
             logoutBtn.addEventListener("click", async () => {
-                await window.electronAPI.logoutSheets();
-                this.addLog("info", "Logged out successfully");
+                this.addLog("info", "Logging out...");
+                try {
+                    await window.electronAPI.logoutSheets();
+                    this.addLog("success", "Logged out successfully!");
+
+                    // Update status badges
+                    const authStatus = document.getElementById('authStatus');
+                    const sheetsStatus = document.getElementById('sheetsStatus');
+                    if (authStatus) {
+                        authStatus.className = 'status-badge status-disconnected';
+                        authStatus.textContent = 'NOT CONNECTED';
+                    }
+                    if (sheetsStatus) {
+                        sheetsStatus.className = 'status-badge status-disconnected';
+                        sheetsStatus.textContent = 'NOT CONNECTED';
+                    }
+
+                    // Toggle buttons
+                    loginBtn.style.display = 'inline-block';
+                    logoutBtn.style.display = 'none';
+                } catch (error) {
+                    this.addLog("error", `Logout error: ${error.message}`);
+                }
             });
             console.log('✅ Logout button listener added');
         }
 
+
         console.log('✅ All event listeners set up');
+    },
+
+    updateProgress: function (current, total, message = '') {
+        const progressContainer = document.getElementById('progressContainer');
+        const progressFill = document.getElementById('progressFill');
+        const progressText = document.getElementById('progressText');
+        const progressPercent = document.getElementById('progressPercent');
+
+        if (!progressContainer || !progressFill) return;
+
+        const percent = total > 0 ? Math.round((current / total) * 100) : 0;
+
+        // Show container when scraping starts
+        if (current > 0 || total > 0) {
+            progressContainer.style.display = 'block';
+        }
+
+        progressFill.style.width = `${percent}%`;
+
+        if (progressText) {
+            progressText.textContent = message || `Processing ${current}/${total}`;
+        }
+
+        if (progressPercent) {
+            progressPercent.textContent = `${percent}%`;
+        }
+
+        // Hide when complete
+        if (current === total && total > 0) {
+            setTimeout(() => {
+                progressContainer.style.display = 'none';
+                progressFill.style.width = '0%';
+            }, 2000);
+        }
     },
 
     updateFileName: function () {

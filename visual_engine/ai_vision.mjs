@@ -6,7 +6,13 @@ dotenv.config();
 
 // Initialize Gemini Client  
 const apiKey = process.env.GEMINI_API_KEY;
-const client = new GoogleGenAI({ apiKey });
+
+if (!apiKey) {
+    console.error('❌ GEMINI_API_KEY not found in environment variables!');
+    console.error('   Please set it in Settings or .env file');
+}
+
+const client = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
 /**
  * Analyzes a social media post screenshot using Gemini Vision.
@@ -16,6 +22,10 @@ const client = new GoogleGenAI({ apiKey });
  */
 export async function analyzePostImage(imagePath, puppeteerStats = null) {
     try {
+        if (!client) {
+            throw new Error('Gemini API client not initialized. Please set GEMINI_API_KEY in Settings.');
+        }
+
         console.log(`👁️ Analyzing image with AI: ${imagePath}`);
         if (puppeteerStats) {
             console.log(`📊 Puppeteer stats to validate: ${JSON.stringify(puppeteerStats)}`);
@@ -30,10 +40,8 @@ export async function analyzePostImage(imagePath, puppeteerStats = null) {
         if (puppeteerStats) {
             validationInstructions = `
 
-6. Validation (IMPORTANT - אימות):
+6. Validation (IMPORTANT):
    Puppeteer extracted these stats from the page:
-   - Likes: ${puppeteerStats.likes || 0}
-   - Comments: ${puppeteerStats.comments || 0}
    - Likes: ${puppeteerStats.likes || 0}
    - Comments: ${puppeteerStats.comments || 0}
    
@@ -47,7 +55,7 @@ export async function analyzePostImage(imagePath, puppeteerStats = null) {
         }
 
         // Prepare the prompt with image 
-        const currentTime = new Date().toLocaleString('he-IL');
+        const currentTime = new Date().toLocaleString('en-US');
         const prompt = [
             {
                 text: `
@@ -150,7 +158,14 @@ Return the result ONLY as a valid JSON object with these exact keys:
             jsonStr = jsonStr.replace(/```json/gi, '').replace(/```/g, '').trim();
         }
 
-        const data = JSON.parse(jsonStr);
+        let data;
+        try {
+            data = JSON.parse(jsonStr);
+        } catch (parseError) {
+            console.error('❌ Failed to parse AI response as JSON:', parseError);
+            console.error('Raw response:', jsonStr.substring(0, 200) + '...');
+            throw new Error('AI returned invalid JSON. Please try again or check API key.');
+        }
 
         console.log('✅ AI Analysis complete');
         return data;

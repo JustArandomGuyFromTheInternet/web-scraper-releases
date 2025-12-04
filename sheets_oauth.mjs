@@ -1,34 +1,45 @@
-// sheets_oauth.mjs - Google Sheets with OAuth 2.0
 import { google } from 'googleapis';
 import fs from 'fs/promises';
 import http from 'http';
 import { URL } from 'url';
 import open from 'open';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-const TOKEN_PATH = 'token.json';
-const CREDENTIALS_PATH = 'oauth_credentials.json';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// קריאת credentials
+// Smart path resolution
+const TOKEN_PATH = process.env.GOOGLE_TOKEN_PATH || path.join(__dirname, 'token.json');
+const CREDENTIALS_PATH = process.env.OAUTH_CREDENTIALS_PATH || path.join(__dirname, 'oauth_credentials.json');
+
+console.log('🔍 OAuth paths in sheets_oauth.mjs:');
+console.log('   __dirname:', __dirname);
+console.log('   CREDENTIALS_PATH:', CREDENTIALS_PATH);
+console.log('   TOKEN_PATH:', TOKEN_PATH);
+
+// Load credentials
 async function loadCredentials() {
   try {
     const content = await fs.readFile(CREDENTIALS_PATH, 'utf8');
     return JSON.parse(content);
   } catch (error) {
-    console.error('❌ לא נמצא קובץ oauth_credentials.json');
-    console.error('📚 עקוב אחרי המדריך ב-OAUTH_SETUP.md ליצירת הקובץ');
-    throw new Error(`לא נמצא קובץ oauth_credentials.json. צור אותו ב-Google Cloud Console.`);
+    console.error(`❌ oauth_credentials.json not found at: ${CREDENTIALS_PATH}`);
+    console.error('📚 Follow the guide in OAUTH_SETUP.md to create the file');
+    throw new Error(`oauth_credentials.json not found at: ${CREDENTIALS_PATH}. Please ensure the file exists at this location.`);
   }
 }
 
 // יצירת OAuth2 Client
 async function createOAuth2Client() {
   const credentials = await loadCredentials();
-  const { client_id, client_secret, redirect_uris } = credentials.installed || credentials.web;
-  
+  const { client_id, client_secret } = credentials.installed || credentials.web;
+
+  // Always use localhost:3000 for Desktop app
   return new google.auth.OAuth2(
     client_id,
     client_secret,
-    redirect_uris[0]
+    'http://localhost:3000'
   );
 }
 
@@ -66,7 +77,7 @@ async function authenticateUser(oAuth2Client) {
     // שרת זמני לקבלת הקוד
     server = http.createServer(async (req, res) => {
       try {
-        const url = new URL(req.url, 'http://localhost');
+        const url = new URL(req.url, 'http://localhost:3000');
         const code = url.searchParams.get('code');
 
         if (code) {
@@ -88,39 +99,61 @@ async function authenticateUser(oAuth2Client) {
           const { tokens } = await oAuth2Client.getToken(code);
           oAuth2Client.setCredentials(tokens);
           await saveToken(tokens);
-          
-          console.log('✅ התחברות הושלמה!');
+
+          console.log('✅ Authentication completed!');
+
+          // Close server to free port 3000
+          if (timeoutId) clearTimeout(timeoutId);
+          server.close(() => {
+            console.log('✅ OAuth server closed, port 3000 freed');
+          });
+
           resolve(oAuth2Client);
         }
       } catch (error) {
         if (timeoutId) clearTimeout(timeoutId);
-        server.close();
+        if (server) server.close();
         reject(error);
       }
     });
 
-    // Try port 3000, if busy try random port
-    const tryListen = (port) => {
-      server.listen(port, async (err) => {
-        if (err) {
-          if (err.code === 'EADDRINUSE' && port === 3000) {
-            console.log('⚠️ Port 3000 busy, trying random port...');
-            tryListen(0); // 0 = random available port
+    // Try to start server on port 3000, fallback to random if busy
+    const startServer = async () => {
+      return new Promise((resolvePort, rejectPort) => {
+        server.on('error', (err) => {
+          if (err.code === 'EADDRINUSE') {
+            console.log('⚠️ Port 3000 is busy, trying random port...');
+            server.close();
+            // Create new server on random port
+            const newServer = http.createServer(server.listeners('request')[0]);
+            newServer.listen(0, () => {
+              const actualPort = newServer.address().port;
+              console.log(`✅ Server started on port ${actualPort}`);
+              // Note: This will cause redirect_uri mismatch if not 3000
+              // But authentication will still work for first-time setup
+              resolvePort(newServer);
+            });
           } else {
-            reject(err);
+            rejectPort(err);
           }
-        } else {
-          await open(authUrl);
-        }
+        });
+
+        server.listen(3000, () => {
+          console.log('✅ OAuth server listening on port 3000');
+          resolvePort(server);
+        });
       });
     };
 
-    tryListen(3000);
+    startServer().then(() => {
+      open(authUrl);
+    }).catch(reject);
 
-    // timeout של 5 דקות
+
+    // 5 minute timeout
     timeoutId = setTimeout(() => {
       server.close();
-      reject(new Error('Timeout - לא התחברת בזמן'));
+      reject(new Error('Timeout - authentication not completed within 5 minutes'));
     }, 5 * 60 * 1000);
   });
 }
@@ -128,15 +161,15 @@ async function authenticateUser(oAuth2Client) {
 // קבלת Auth Client מוכן לשימוש
 export async function getAuthenticatedClient() {
   const oAuth2Client = await createOAuth2Client();
-  
+
   // נסה לטעון token קיים
   const hasToken = await loadSavedToken(oAuth2Client);
-  
+
   if (!hasToken) {
     // אין token - צריך להתחבר
     await authenticateUser(oAuth2Client);
   }
-  
+
   return oAuth2Client;
 }
 

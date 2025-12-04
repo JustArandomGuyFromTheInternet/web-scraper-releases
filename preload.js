@@ -23,9 +23,11 @@ try {
         openBrowser: () => ipcRenderer.invoke('open-browser'),
 
         // OAuth
+        authenticateGoogle: () => ipcRenderer.invoke('authenticate-google'),
         isAuthenticated: () => ipcRenderer.invoke('is-authenticated'),
         logoutSheets: () => ipcRenderer.invoke('logout-sheets'),
         forceGoogleAuth: () => ipcRenderer.invoke('force-google-auth'),
+        loadOAuthCredentials: () => ipcRenderer.invoke('load-oauth-credentials'),
 
         // Settings
         getSettings: () => ipcRenderer.invoke('get-settings'),

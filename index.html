@@ -57,35 +57,45 @@
                     <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
                         תיקון נתונים חסרים בטבלה. כל כלי מחפש את המידע לפי סדר עדיפויות אוטומטי.
                     </p>
-                    
-                    <div class="repair-tools-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
-                        <button id="repairGroupsBtn" class="action-btn warning-btn" style="font-size: 0.9em; padding: 10px;">
+
+                    <div class="repair-tools-grid"
+                        style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+                        <button id="repairGroupsBtn" class="action-btn warning-btn"
+                            style="font-size: 0.9em; padding: 10px;">
                             <span class="icon">🔧</span> Group Names
                         </button>
-                        <button id="repairLikesBtn" class="action-btn warning-btn" style="font-size: 0.9em; padding: 10px;">
+                        <button id="repairLikesBtn" class="action-btn warning-btn"
+                            style="font-size: 0.9em; padding: 10px;">
                             <span class="icon">👍</span> Likes
                         </button>
-                        <button id="repairCommentsBtn" class="action-btn warning-btn" style="font-size: 0.9em; padding: 10px;">
+                        <button id="repairCommentsBtn" class="action-btn warning-btn"
+                            style="font-size: 0.9em; padding: 10px;">
                             <span class="icon">💬</span> Comments
                         </button>
-                        <button id="repairSharesBtn" class="action-btn warning-btn" style="font-size: 0.9em; padding: 10px;">
+                        <button id="repairSharesBtn" class="action-btn warning-btn"
+                            style="font-size: 0.9em; padding: 10px;">
                             <span class="icon">📤</span> Shares
                         </button>
-                        <button id="repairContentBtn" class="action-btn warning-btn" style="font-size: 0.9em; padding: 10px;">
+                        <button id="repairContentBtn" class="action-btn warning-btn"
+                            style="font-size: 0.9em; padding: 10px;">
                             <span class="icon">📝</span> Content/Summary
                         </button>
-                        <button id="repairSenderBtn" class="action-btn warning-btn" style="font-size: 0.9em; padding: 10px;">
+                        <button id="repairSenderBtn" class="action-btn warning-btn"
+                            style="font-size: 0.9em; padding: 10px;">
                             <span class="icon">👤</span> Sender Name
                         </button>
-                        <button id="repairDateBtn" class="action-btn warning-btn" style="font-size: 0.9em; padding: 10px;">
+                        <button id="repairDateBtn" class="action-btn warning-btn"
+                            style="font-size: 0.9em; padding: 10px;">
                             <span class="icon">📅</span> Post Date
                         </button>
-                        <button id="repairAllBtn" class="action-btn primary-btn" style="font-size: 0.9em; padding: 10px; grid-column: 1 / -1;">
+                        <button id="repairAllBtn" class="action-btn primary-btn"
+                            style="font-size: 0.9em; padding: 10px; grid-column: 1 / -1;">
                             <span class="icon">🔄</span> Repair All Missing Data
                         </button>
                     </div>
-                    
-                    <div id="repairStatus" style="margin-top: 10px; font-size: 0.9em; color: #666; min-height: 20px;"></div>
+
+                    <div id="repairStatus" style="margin-top: 10px; font-size: 0.9em; color: #666; min-height: 20px;">
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button class="secondary-btn" id="cancelSettingsBtn">Cancel</button>
@@ -188,11 +198,14 @@
                     <button id="visualBtn" class="btn visual">🚀 START SCRAPING</button>
                     <button id="stopBtn" class="btn btn-danger" disabled>⏹ Stop</button>
                 </div>
-                <div class="progress-container">
+                <div class="progress-container" id="progressContainer" style="display: none;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px;">
+                        <span id="progressText">Processing...</span>
+                        <span id="progressPercent" style="color: var(--primary); font-weight: 600;">0%</span>
+                    </div>
                     <div class="progress-bar">
                         <div class="progress-fill" id="progressFill" style="width: 0%"></div>
                     </div>
-                    <div class="progress-text" id="progressText">Waiting to start</div>
                 </div>
             </div>
 

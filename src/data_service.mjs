@@ -52,7 +52,7 @@ async function loadSheetsWriter() {
 }
 
 // Configuration
-const OUT_DIR = path.join(process.cwd(), 'out_new');
+const OUT_DIR = process.env.OUTPUT_DIR || path.join(process.cwd(), 'out_new');
 const JSONL_FILE = path.join(OUT_DIR, 'summaries.jsonl');
 const CSV_FILE = path.join(OUT_DIR, 'summaries.csv');
 
