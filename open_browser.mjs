@@ -6,7 +6,7 @@ export async function openBrowser() {
   console.log('🌐 פותח דפדפן לחיבור חשבונות...');
 
   try {
-    const { CHROME_EXE, USER_DATA_DIR, PROFILE_DIR } = await import('./scrape_config.mjs');
+    const { CHROME_EXE, USER_DATA_DIR, PROFILE_DIR } = await import('./src/scrape_config.mjs');
 
     // Build launch options with fallbacks
     const launchOptions = {
@@ -52,7 +52,7 @@ export async function openBrowser() {
     console.log('✅ הדפדפן נפתח בהצלחה');
     console.log('💡 כעת תוכל להתחבר לחשבונות שלך');
     console.log('⚠️  סגור את החלון הזה רק לאחר שסיימת להתחבר');
-    
+
     try {
       const page = await browser.newPage();
       await page.goto('https://www.facebook.com', { waitUntil: 'networkidle2', timeout: 60000 });

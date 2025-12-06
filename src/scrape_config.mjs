@@ -5,11 +5,11 @@ import os from 'os';
 import path from 'path';
 
 const username = os.userInfo().username;
-const defaultUserDataDir = process.platform === 'win32' 
-  ? path.join(process.cwd(), 'chrome-profile')
-  : process.platform === 'darwin'
-  ? path.join(process.cwd(), 'chrome-profile')
-  : path.join(process.cwd(), 'chrome-profile');
+const defaultUserDataDir = process.platform === 'win32'
+    ? path.join(process.cwd(), 'chrome-profile')
+    : process.platform === 'darwin'
+        ? path.join(process.cwd(), 'chrome-profile')
+        : path.join(process.cwd(), 'chrome-profile');
 
 export const CHROME_EXE = process.env.CHROME_EXE || "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 export const USER_DATA_DIR = process.env.USER_DATA_DIR || defaultUserDataDir;
@@ -30,7 +30,7 @@ export const SERVICE_ACCOUNT_KEY_PATH = "service_account_key.json";
 
 // פרומפט בסיס לסיכום — מוסיף הקשר, והקריאה בפועל דורשת JSON קשיח
 export const SUMMARY_PROMPT = ({ name, url, rawText }) =>
-  `
+    `
 נתח/י את הפוסט הבא וחזר/י JSON בפורמט הבא בדיוק:
 {
   "group_name": "שם הקבוצה או העמוד בפייסבוק (אם נמצא, אחרת ריק)",

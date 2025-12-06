@@ -10,17 +10,10 @@ let configLoaded = false;
 async function loadConfig() {
     if (configLoaded) return;
 
-    try {
-        const config = await import('../scrape_config.mjs');
-        CHROME_EXE = config.CHROME_EXE;
-        USER_DATA_DIR = config.USER_DATA_DIR;
-        PROFILE_DIR = config.PROFILE_DIR;
-    } catch {
-        const config = await import('./scrape_config.mjs');
-        CHROME_EXE = config.CHROME_EXE;
-        USER_DATA_DIR = config.USER_DATA_DIR;
-        PROFILE_DIR = config.PROFILE_DIR;
-    }
+    const config = await import('./scrape_config.mjs');
+    CHROME_EXE = config.CHROME_EXE;
+    USER_DATA_DIR = config.USER_DATA_DIR;
+    PROFILE_DIR = config.PROFILE_DIR;
 
     configLoaded = true;
 }

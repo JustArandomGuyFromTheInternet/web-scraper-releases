@@ -13,11 +13,7 @@ import { log } from './logger.mjs';
 
 // Dynamic imports for modules that might be in root or src
 const importExtractors = async () => {
-    try {
-        return await import('../extractors.mjs');
-    } catch {
-        return await import('./extractors.mjs');
-    }
+    return await import('./extractors.mjs');
 };
 
 // Dynamic imports for visual engine (to keep startup fast)
