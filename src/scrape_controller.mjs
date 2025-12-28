@@ -11,20 +11,53 @@ import { launchBrowser, navigateWithRetry } from './browser_manager.mjs';
 import { ensureOutFiles, appendSheetsRow, appendJsonl, formatDate } from './data_service.mjs';
 import { log } from './logger.mjs';
 
-// Dynamic imports for modules that might be in root or src
-const importExtractors = async () => {
-    return await import('./extractors.mjs');
+// Module caching system (lazy singleton pattern)
+let extractorsModule = null;
+let visualEngineModule = null;
+
+const getExtractors = async () => {
+    if (!extractorsModule) {
+        extractorsModule = await import('./extractors.mjs');
+    }
+    return extractorsModule;
 };
 
-// Dynamic imports for visual engine (to keep startup fast)
-const importVisualEngine = async () => {
-    const { analyzePostImage } = await import('../visual_engine/ai_vision.mjs');
-    const { optimizeImage } = await import('../visual_engine/image_optimizer.mjs');
-    return { analyzePostImage, optimizeImage };
+const getVisualEngine = async () => {
+    if (!visualEngineModule) {
+        const vision = await import('../visual_engine/ai_vision.mjs');
+        const optimizer = await import('../visual_engine/image_optimizer.mjs');
+        visualEngineModule = { analyzePostImage: vision.analyzePostImage, optimizeImage: optimizer.optimizeImage };
+    }
+    return visualEngineModule;
 };
+
+// File cleanup queue - safer than setTimeout
+class FileCleanupQueue {
+    constructor() {
+        this.queue = [];
+    }
+    async add(filePath) {
+        this.queue.push(filePath);
+    }
+    async process() {
+        for (const filePath of this.queue) {
+            for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                    await fs.unlink(filePath);
+                    log(`Cleanup: ${filePath}`, 'debug');
+                    break;
+                } catch (e) {
+                    if (attempt < 2) await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+                }
+            }
+        }
+        this.queue = [];
+    }
+}
+const cleanupQueue = new FileCleanupQueue();
 
 export async function main() {
-    log('Starting Scraper Controller...', 'info');
+    log('Initializing scraper...', 'info');
 
     // Stop mechanism
     let shouldStop = false;
@@ -35,7 +68,7 @@ export async function main() {
     try {
         await ensureOutFiles();
     } catch (e) {
-        log(`Failed to setup output files: ${e.message}`, 'error');
+        log(`Output setup failed: ${e.message}`, 'error');
         throw e; // Don't kill process immediately
     }
 
@@ -56,21 +89,22 @@ export async function main() {
         }
 
     } catch (e) {
-        log(`Failed to read links file: ${e.message}`, 'error');
+        log(`Cannot read links file: ${e.message}`, 'error');
         throw e;
     }
 
     if (links.length === 0) {
-        log('No links found to scrape.', 'warning');
+        log('No links provided to scrape', 'warning');
         return;
     }
-
     // 2. Launch Browser
     let browser;
     try {
+        // Silently launch browser in headless mode
+        log('Initializing browser...', 'info');
         browser = await launchBrowser();
     } catch (e) {
-        log(`Failed to launch browser: ${e.message}`, 'error');
+        log(`Browser launch failed: ${e.message}`, 'error');
         throw e;
     }
 
@@ -81,7 +115,7 @@ export async function main() {
     try {
         for (const row of links) {
             if (shouldStop) {
-                log('🛑 Scraping stopped by user signal', 'warning');
+                log('Scraping stopped by user', 'warning');
                 break;
             }
 
@@ -89,7 +123,7 @@ export async function main() {
             const { name, date, url } = row;
             const ts = new Date().toLocaleDateString("he-IL");
 
-            log(`Processing [${idx}/${links.length}]: ${name || url}`, 'info', { step: idx, total: links.length });
+            log(`[${idx}/${links.length}] Processing link...`, 'info', { step: idx, total: links.length });
 
             // Check types
             const isStory = url.toLowerCase().includes('story') || url.toLowerCase().includes('stories');
@@ -100,14 +134,14 @@ export async function main() {
 
             // SKIP LOGIC: Stories & Reels in Regular Mode
             if ((isStory || isReel) && !IS_VISUAL_MODE) {
-                const type = isStory ? 'סטורי' : 'רילס';
-                log(`${type} detected - Skipping (Regular Mode)`, 'warning', { indent: true });
+                const type = isStory ? 'Story' : 'Reel';
+                log(`Skipping ${type} (not supported in this mode)`, 'warning', { indent: true });
 
                 const payload = {
                     sender_name: name || "Unknown",
                     group_name: "",
                     post_date: formatDate(date),
-                    summary: `${type} - לא ניתן לחלץ תוכן`
+                    summary: `${type} - Cannot extract content in regular mode`
                 };
 
                 await appendSheetsRow({ url, ...payload, likes: 0, comments: 0, shares: 0, validation: "" });
@@ -117,7 +151,7 @@ export async function main() {
 
             // STORY HANDLING (Visual Mode)
             if (isStory && IS_VISUAL_MODE) {
-                log('Story in Visual Mode - Extracting from URL', 'info', { indent: true });
+                log('Story found - extracting...', 'info', { indent: true });
 
                 let senderName = name || "Unknown";
                 try {
@@ -134,7 +168,7 @@ export async function main() {
                         sender_name: senderName,
                         group_name: "",
                         post_date: formatDate(date),
-                        summary: `סטורי של ${senderName} - תוכן זמני שאינו ניתן לחילוץ`
+                        summary: `Story from ${senderName} - Temporary content cannot be extracted`
                     };
 
                     await appendSheetsRow({ url, ...payload, likes: 0, comments: 0, shares: 0, validation: "" });
@@ -148,12 +182,13 @@ export async function main() {
 
             // REEL HANDLING (Visual Mode) - Screenshot with AI for date extraction
             if (isReel && IS_VISUAL_MODE) {
-                log('Reel detected - Extracting with AI', 'info', { indent: true });
+                log('Reel found - analyzing with AI...', 'info', { indent: true });
 
                 let page;
                 try {
                     page = await navigateWithRetry(browser, url, name);
-                    const { waitForLikelyContent, extractFacebookMetadata, extractTikTokMetadata } = await importExtractors();
+                    const extractors = await getExtractors();
+                    const { waitForLikelyContent, extractFacebookMetadata, extractTikTokMetadata } = extractors;
                     await waitForLikelyContent(page, url);
 
                     // Extract metadata (including date) using Puppeteer
@@ -177,8 +212,9 @@ export async function main() {
                     await page.screenshot({ path: screenshotPath, fullPage: false });
 
                     // Use AI to extract date and other info from screenshot
-                    const { analyzePostImage, optimizeImage } = await importVisualEngine();
-                    const optimizedPath = await optimizeImage(screenshotPath);
+                    const visualEngine = await getVisualEngine();
+                    const optimizedPath = await visualEngine.optimizeImage(screenshotPath);
+                    const { analyzePostImage } = visualEngine;
                     const aiData = await analyzePostImage(optimizedPath, statsMetadata);
 
                     // Use AI date if available, otherwise use Puppeteer date, otherwise use formatDate(date)
@@ -195,14 +231,14 @@ export async function main() {
                         sender_name: aiData.sender_name || name || "Unknown",
                         group_name: aiData.group_name || statsMetadata.groupName || "",
                         post_date: finalDate,
-                        summary: aiData.summary || "רילס"
+                        summary: aiData.summary || "Reel"
                     };
 
                     await appendSheetsRow({ url, ...payload, likes: statsMetadata.likes || 0, comments: statsMetadata.comments || 0, shares: finalShares, validation: aiData.validation || "" });
                     await appendJsonl({ ts, name, date, url, ok: true, ai: payload, metadata: statsMetadata, reel: true, screenshot: optimizedPath });
                     succeeded.push({ name, date, url });
                 } catch (e) {
-                    log(`Error processing Reel: ${e.message}`, 'error');
+                    log(`Failed to analyze reel: ${e.message}`, 'error');
                     failed.push({ name, date, url, error: e.message });
                 } finally {
                     if (page) await page.close();
@@ -216,9 +252,11 @@ export async function main() {
                 page = await navigateWithRetry(browser, url, name);
 
                 if (IS_VISUAL_MODE) {
-                    const { waitForLikelyContent, extractFacebookMetadata, extractTikTokMetadata } = await import('../extractors.mjs');
+                    const extractors = await getExtractors();
+                    const { waitForLikelyContent, extractFacebookMetadata, extractTikTokMetadata } = extractors;
                     await waitForLikelyContent(page, url);
-                    const { analyzePostImage, optimizeImage } = await importVisualEngine();
+                    const visualEngine = await getVisualEngine();
+                    const { analyzePostImage, optimizeImage } = visualEngine;
 
                     // Screenshot
                     const screenshotsDir = process.env.SCREENSHOTS_DIR || path.join(process.cwd(), 'visual_engine', 'screen_shots');
@@ -268,13 +306,23 @@ export async function main() {
 
                     // AI Analysis (pass shares from Puppeteer for validation)
                     log('Starting AI analysis...', 'info');
-                    let aiData;
+                    let aiData = null;
                     try {
                         aiData = await analyzePostImage(optimizedPath, statsMetadata);
                         log('AI analysis completed', 'success');
                     } catch (err) {
-                        log(`AI analysis failed: ${err.message}`, 'error');
-                        throw err;
+                        log(`[WARN] AI analysis failed: ${err.message}`, 'warning');
+                        log('[INFO] Continuing with Puppeteer data only (no AI validation)', 'info');
+                        // Don't throw - continue with what we have from Puppeteer
+                        aiData = {
+                            sender_name: null,
+                            group_name: null,
+                            summary: null,
+                            post_date: null,
+                            shares: null,
+                            validation: null,
+                            ai_error: err.message
+                        };
                     }
 
                     // Prioritize AI shares if available, otherwise use Puppeteer
@@ -291,7 +339,7 @@ export async function main() {
                         sender_name: aiData.sender_name || name || "Unknown",
                         group_name: aiData.group_name || statsMetadata.groupName || "",
                         post_date: finalDate,
-                        summary: aiData.summary || aiData.content || "No content"
+                        summary: aiData.summary || aiData.content || "No content (AI analysis skipped)"
                     };
 
                     await appendSheetsRow({
@@ -300,46 +348,17 @@ export async function main() {
                         likes: statsMetadata.likes || 0,
                         comments: statsMetadata.comments || 0,
                         shares: finalShares,
-                        validation: aiData.validation || ""
+                        validation: aiData.validation ? `${aiData.validation}` : "[No AI validation - quota exceeded]"
                     });
 
                     // Save OPTIMIZED path to logs, so repair tool uses the small file
                     await appendJsonl({ ts, name, date, url, ok: true, ai: payload, metadata: statsMetadata, visual: true, screenshot: optimizedPath });
                     succeeded.push({ name, date, url });
 
-                    // Cleanup: Delete the huge original screenshot
-                    // Note: We do this in a separate async task to not block the main flow
+                    // Cleanup: Delete the huge original screenshot (via queue, non-blocking)
                     if (screenshotPath !== optimizedPath) {
-                        // Schedule deletion after a delay to ensure file handles are released
-                        setTimeout(async () => {
-                            try {
-                                // Wait longer to ensure all file handles are released
-                                await new Promise(r => setTimeout(r, 5000));
-
-                                // Try multiple times with retries
-                                let deleted = false;
-                                for (let attempt = 0; attempt < 5; attempt++) {
-                                    try {
-                                        await fs.unlink(screenshotPath);
-                                        deleted = true;
-                                        log('Deleted original high-res screenshot', 'info');
-                                        break;
-                                    } catch (unlinkError) {
-                                        if (attempt < 4) {
-                                            // Wait progressively longer before retry
-                                            await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
-                                        }
-                                    }
-                                }
-
-                                if (!deleted) {
-                                    // Silent failure - don't spam logs with this
-                                    // The file will be cleaned up later or on next run
-                                }
-                            } catch (e) {
-                                // Silent failure - file will be cleaned up later
-                            }
-                        }, 1000); // Start deletion attempt after 1 second
+                        await cleanupQueue.add(screenshotPath);
+                        log('Screenshot queued for cleanup', 'debug');
                     }
 
                 } else {
@@ -352,6 +371,13 @@ export async function main() {
                 failed.push({ name, date, url, error: error.message });
             } finally {
                 if (page) await page.close();
+                
+                // Rate limiting: Add delay between posts in visual mode to avoid Gemini quota issues
+                if (IS_VISUAL_MODE && (succeeded.length + failed.length) < links.length) {
+                    const delaySeconds = 1; // 1 second between posts (reduced for speed)
+                    log(`[INFO] Waiting ${delaySeconds}s before next post...`, 'info');
+                    await new Promise(resolve => setTimeout(resolve, delaySeconds * 1000));
+                }
             }
         }
     } catch (loopError) {
@@ -362,9 +388,9 @@ export async function main() {
         if (browser) {
             try {
                 await browser.close();
-                console.log('✅ Browser closed');
+                console.log('[OK] Browser closed');
             } catch (e) {
-                console.error(`⚠️ Error closing browser: ${e.message}`);
+                console.error(`[WARN] Error closing browser: ${e.message}`);
             }
         }
     }

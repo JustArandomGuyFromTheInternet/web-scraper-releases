@@ -1,23 +1,51 @@
 // scrape_config.mjs
-// הגדרות סביבת הדפדפן, מודל, טיימאאוטים ופרומפט
+// Browser environment, model, timeouts and prompt configuration
 
 import os from 'os';
 import path from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const username = os.userInfo().username;
-const defaultUserDataDir = process.platform === 'win32'
+const defaultUserDataDir = process.env.USER_DATA_DIR || 
+  (process.platform === 'win32'
     ? path.join(process.cwd(), 'chrome-profile')
-    : process.platform === 'darwin'
-        ? path.join(process.cwd(), 'chrome-profile')
-        : path.join(process.cwd(), 'chrome-profile');
+    : path.join(process.cwd(), 'chrome-profile'));
 
-export const CHROME_EXE = process.env.CHROME_EXE || "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+// Chrome executable - use env var or find it dynamically
+export const CHROME_EXE = process.env.CHROME_EXE || findChrome();
+
+function findChrome() {
+  const possiblePaths = [
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    path.join(process.env.ProgramFiles || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    path.join(process.env['ProgramFiles(x86)'] || '', 'Google', 'Chrome', 'Application', 'chrome.exe')
+  ];
+  
+  for (const chromePath of possiblePaths) {
+    try {
+      if (chromePath && require('fs').existsSync(chromePath)) {
+        return chromePath;
+      }
+    } catch (e) {
+      // Skip
+    }
+  }
+  
+  return "chrome"; // Fallback to system PATH
+}
+
 export const USER_DATA_DIR = process.env.USER_DATA_DIR || defaultUserDataDir;
 export const PROFILE_DIR = process.env.PROFILE_DIR || "Default";
 
 export const NAV_TIMEOUT_MS = 300_000; // 5 minutes
 export const EXTRACT_TIMEOUT_MS = 180_000; // 3 minutes
-export const BETWEEN_PAGES_DELAY_MS = 4_000; // להפחתת 429
+export const BETWEEN_PAGES_DELAY_MS = 1_000; // 1 second between pages (reduced for performance)
 
 export const MAX_RETRIES = 3;
 export const MODEL_NAME = "gemini-2.0-flash-001";

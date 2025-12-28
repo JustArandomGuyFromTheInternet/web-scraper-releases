@@ -1,5 +1,5 @@
 // Simple renderer.js - Fixed version
-console.log('✅ renderer.js loaded');
+console.log('[INFO] renderer.js loaded');
 
 // App state
 const app = {
@@ -10,10 +10,23 @@ const app = {
         const logViewer = document.getElementById("logViewer");
         if (!logViewer) return;
 
-        const timestamp = new Date().toLocaleTimeString();
+        const timestamp = new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         const log = document.createElement("div");
         log.className = `log-entry log-${type}`;
-        log.innerHTML = `<span class="timestamp">[${timestamp}]</span> ${message}`;
+        
+        // Friendly message formatting
+        let displayMessage = message;
+        if (type === 'success') {
+            displayMessage = `✅ ${message}`;
+        } else if (type === 'error') {
+            displayMessage = `❌ ${message}`;
+        } else if (type === 'warning') {
+            displayMessage = `⚠️  ${message}`;
+        } else if (type === 'info') {
+            displayMessage = `ℹ️  ${message}`;
+        }
+        
+        log.innerHTML = `<span class="timestamp">${timestamp}</span> ${displayMessage}`;
         logViewer.appendChild(log);
         logViewer.scrollTop = logViewer.scrollHeight;
 
@@ -68,10 +81,10 @@ const app = {
         const statusDiv = document.getElementById("linksStatus");
         if (statusDiv) {
             if (this.state.links.length > 0) {
-                statusDiv.innerHTML = `<div class="info-box">✅ Found <strong>${this.state.links.length}</strong> valid links</div>`;
+                statusDiv.innerHTML = `<div class="info-box">[OK] Found <strong>${this.state.links.length}</strong> valid links</div>`;
                 this.addLog("success", `Found ${this.state.links.length} valid links`);
             } else {
-                statusDiv.innerHTML = `<div class="warning-box">⚠️ No valid links found</div>`;
+                statusDiv.innerHTML = `<div class="warning-box">[WARN] No valid links found</div>`;
                 this.addLog("warning", "No valid links found");
             }
         }
@@ -100,10 +113,13 @@ const app = {
             const sheetsTab = document.querySelector('[data-target="sheets"]');
             const isSheetsMode = sheetsTab?.classList.contains('active');
 
+            const existingFile = document.getElementById("existingFile")?.value;
+            
             const payload = {
                 links: this.state.links,
                 savePath: document.getElementById("savePath")?.value || "./out_new",
                 fileName: document.getElementById("fileName")?.value || "summaries.csv",
+                existingFile: existingFile || undefined,  // Pass existing file path if selected
                 visualMode: true // Always use visual mode for Stories/Reels support
             };
 
@@ -133,7 +149,7 @@ const app = {
             await window.electronAPI.runScrape(payload);
             // Reset buttons after successful completion
             this.resetButtons();
-            this.addLog("success", "✅ הסריקה הושלמה בהצלחה!");
+            this.addLog("success", "[OK] Scraping completed successfully!");
         } catch (error) {
             this.addLog("error", `Scraping error: ${error.message}`);
             this.resetButtons();
@@ -200,25 +216,25 @@ const app = {
         const stopBtn = document.getElementById("stopBtn");
         if (stopBtn) {
             stopBtn.addEventListener("click", () => this.stopScraping());
-            console.log('✅ Stop button listener added');
+            console.log('[INFO] Stop button listener added');
         } else {
-            console.error('❌ Stop button not found!');
+            console.error('[ERR] Stop button not found!');
         }
 
         // Clear log button
         const clearLogBtn = document.getElementById("clearLogBtn");
         if (clearLogBtn) {
             clearLogBtn.addEventListener("click", () => app.clearLog());
-            console.log('✅ Clear log button listener added');
+            console.log('[OK] Clear log button listener added');
         } else {
-            console.error('❌ Clear log button not found!');
+            console.error('[ERR] Clear log button not found!');
         }
 
         // Visual Scrape button
         const visualBtn = document.getElementById("visualBtn");
         if (visualBtn) {
             visualBtn.addEventListener("click", () => this.startVisualScraping());
-            console.log('✅ Visual Scrape button listener added');
+            console.log('[OK] Visual Scrape button listener added');
         }
 
         // Links input
@@ -227,7 +243,7 @@ const app = {
             linksInput.addEventListener("input", () => {
                 setTimeout(() => this.parseLinks(), 300);
             })
-            console.log('✅ Links input listener added');
+            console.log('[OK] Links input listener added');
         }
 
 
@@ -249,8 +265,7 @@ const app = {
             content: document.getElementById('colContent'),
             summary: document.getElementById('colSummary'),
             likes: document.getElementById('colLikes'),
-            comments: document.getElementById('colComments'),
-            shares: document.getElementById('colShares')
+            comments: document.getElementById('colComments')
         };
 
         if (settingsBtn) {
@@ -275,8 +290,7 @@ const app = {
                             content: true,
                             summary: true,
                             likes: true,
-                            comments: true,
-                            shares: true
+                            comments: true
                         };
 
                         const columns = settings.columns || defaultColumns;
@@ -334,7 +348,7 @@ const app = {
         // Helper function for repair operations
         const performRepair = async (field, buttonId) => {
             const sheetsUrl = document.getElementById('sheetsUrl')?.value;
-            const sheetName = document.getElementById('sheetName')?.value || 'גיליון1';
+            const sheetName = document.getElementById('sheetName')?.value || 'Sheet1';
             const repairStatus = document.getElementById('repairStatus');
             const button = document.getElementById(buttonId);
             const stopBtn = document.getElementById('stopBtn');
@@ -391,7 +405,7 @@ const app = {
         // Repair All function
         const performRepairAll = async () => {
             const sheetsUrl = document.getElementById('sheetsUrl')?.value;
-            const sheetName = document.getElementById('sheetName')?.value || 'גיליון1';
+            const sheetName = document.getElementById('sheetName')?.value || 'Sheet1';
             const repairStatus = document.getElementById('repairStatus');
             const button = document.getElementById('repairAllBtn');
             const stopBtn = document.getElementById('stopBtn');
@@ -472,11 +486,6 @@ const app = {
             repairCommentsBtn.onclick = () => performRepair('comments', 'repairCommentsBtn');
         }
 
-        const repairSharesBtn = document.getElementById('repairSharesBtn');
-        if (repairSharesBtn) {
-            repairSharesBtn.onclick = () => performRepair('shares', 'repairSharesBtn');
-        }
-
         const repairContentBtn = document.getElementById('repairContentBtn');
         if (repairContentBtn) {
             repairContentBtn.onclick = () => performRepair('content', 'repairContentBtn');
@@ -511,7 +520,7 @@ const app = {
                     });
                 }
             });
-            console.log('✅ Copy log button listener added');
+            console.log('[OK] Copy log button listener added');
         }
 
         // Delete screenshots button
@@ -532,7 +541,7 @@ const app = {
                     }
                 }
             });
-            console.log('✅ Delete screenshots button listener added');
+            console.log('[OK] Delete screenshots button listener added');
         }
 
         // Open screenshots folder button
@@ -546,7 +555,7 @@ const app = {
                     this.addLog('error', `Failed to open folder: ${error.message}`);
                 }
             });
-            console.log('✅ Open screenshots folder button listener added');
+            console.log('[OK] Open screenshots folder button listener added');
         }
 
         // Browse buttons
@@ -564,7 +573,7 @@ const app = {
                     this.addLog("error", `Path selection error: ${error.message}`);
                 }
             });
-            console.log('✅ Browse save path button listener added');
+            console.log('[OK] Browse save path button listener added');
         }
 
         const browseFileBtn = document.getElementById("browseFileBtn");
@@ -578,10 +587,13 @@ const app = {
                         this.addLog("success", `Selected file: ${filePath}`);
                     }
                 } catch (error) {
-                    this.addLog("error", `File selection error: ${error.message}`);
+                    // User probably clicked Cancel, which throws
+                    if (error.message !== 'No file selected') {
+                        this.addLog("error", `File selection error: ${error.message}`);
+                    }
                 }
             });
-            console.log('✅ Browse file button listener added');
+            console.log('[OK] Browse file button listener added');
         }
 
         // Test connection button
@@ -597,7 +609,7 @@ const app = {
                 this.addLog("info", "Testing Google Sheets connection...");
                 try {
                     const result = await window.electronAPI.testSheetsConnection({ url: sheetsUrl.value });
-                    this.addLog("success", `✅ Connected to sheet "${result.title}"`);
+                    this.addLog("success", `[OK] Connected to sheet "${result.title}"`);
 
                     // Update status badges
                     const authStatus = document.getElementById('authStatus');
@@ -611,7 +623,7 @@ const app = {
                         sheetsStatus.textContent = 'CONNECTED';
                     }
                 } catch (error) {
-                    this.addLog("error", `❌ Connection error: ${error.message}`);
+                    this.addLog("error", `[ERR] Connection error: ${error.message}`);
 
                     // Update status badges to disconnected
                     const authStatus = document.getElementById('authStatus');
@@ -626,7 +638,7 @@ const app = {
                     }
                 }
             });
-            console.log('✅ Test connection button listener added');
+            console.log('[OK] Test connection button listener added');
         }
 
         // Open browser button
@@ -641,7 +653,7 @@ const app = {
                     this.addLog("error", `Browser error: ${error.message}`);
                 }
             });
-            console.log('✅ Open browser button listener added');
+            console.log('[OK] Open browser button listener added');
         }
 
         // Login/logout buttons
@@ -691,7 +703,7 @@ const app = {
                     }
                 }
             });
-            console.log('✅ Login button listener added');
+            console.log('[OK] Login button listener added');
         }
 
         const logoutBtn = document.getElementById("logoutBtn");
@@ -721,11 +733,11 @@ const app = {
                     this.addLog("error", `Logout error: ${error.message}`);
                 }
             });
-            console.log('✅ Logout button listener added');
+            console.log('[OK] Logout button listener added');
         }
 
 
-        console.log('✅ All event listeners set up');
+        console.log('[INFO] All event listeners set up');
     },
 
     updateProgress: function (current, total, message = '') {
@@ -776,7 +788,7 @@ const app = {
 
         // Check if electronAPI is available
         if (window.electronAPI) {
-            console.log("✅ electronAPI is available");
+            console.log("[OK] electronAPI is available");
 
             // Listen for scraping events
             window.electronAPI.onScrapeLog((data) => {
@@ -789,18 +801,18 @@ const app = {
 
             window.electronAPI.on('scraping-complete', (results) => {
                 this.state.isRunning = false;
-                this.addLog('success', `✅ Scraping completed! ${results.succeeded || 0} succeeded, ${results.failed || 0} failed.`);
+                this.addLog('success', `[OK] Scraping completed! ${results.succeeded || 0} succeeded, ${results.failed || 0} failed.`);
 
                 // Re-enable buttons after completion
                 this.resetButtons();
             });
 
             window.electronAPI.on('scraping-error', () => {
-                this.addLog("error", "❌ Scraping failed");
+                this.addLog("error", "[ERR] Scraping failed");
                 this.resetButtons();
             });
         } else {
-            console.error("❌ electronAPI is not available!");
+            console.error("[ERR] electronAPI is not available!");
             this.addLog("error", "API not available");
         }
 
@@ -808,7 +820,7 @@ const app = {
         this.setupEventListeners();
         this.addLog("info", "System ready");
 
-        console.log('✅ App initialized');
+        console.log('[OK] App initialized');
     }
 };
 
@@ -819,4 +831,4 @@ document.addEventListener("DOMContentLoaded", () => {
     app.initialize();
 });
 
-console.log('✅ renderer.js fully loaded');
+console.log('[OK] renderer.js fully loaded');

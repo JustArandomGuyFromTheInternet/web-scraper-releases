@@ -2,17 +2,65 @@ import { GoogleGenAI } from "@google/genai";
 import fs from 'fs/promises';
 import dotenv from 'dotenv';
 
-dotenv.config();
+// Load .env file, but don't override env vars already set (override: false)
+// This way, env vars from settings (via main.js) take priority
+dotenv.config({ override: false });
 
-// Initialize Gemini Client  
-const apiKey = process.env.GEMINI_API_KEY;
-
-if (!apiKey) {
-    console.error('❌ GEMINI_API_KEY not found in environment variables!');
-    console.error('   Please set it in Settings or .env file');
+// Get API key dynamically (so settings changes take effect)
+function getClient() {
+    const apiKey = process.env.GEMINI_API_KEY;
+    
+    if (!apiKey) {
+        console.error('[ERR] GEMINI_API_KEY not found in environment variables!');
+        console.error('[INFO] Please set it in Settings or .env file');
+        return null;
+    }
+    
+    const keyPreview = apiKey.substring(0, 15);
+    console.log(`[OK] Using API key: ${keyPreview}...`);
+    
+    return new GoogleGenAI({ apiKey });
 }
 
-const client = apiKey ? new GoogleGenAI({ apiKey }) : null;
+/**
+ * Call Gemini API with automatic retry on quota exceeded (429 errors)
+ * Uses exponential backoff: 16s, 32s, 64s between retries
+ * Returns null on final failure to enable fallback to Puppeteer stats
+ */
+async function callGeminiWithRetry(client, prompt, maxRetries = 3) {
+    const delays = [16000, 32000, 64000]; // 16s, 32s, 64s
+    
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            console.log(`[Gemini] Attempt ${attempt + 1}/${maxRetries}`);
+            const response = await client.models.generateContent({
+                model: 'models/gemini-2.0-flash-001',
+                contents: prompt
+            });
+            console.log('[OK] Gemini call succeeded');
+            return response;
+            
+        } catch (error) {
+            const is429 = error.status === 429 || error.message?.includes('429') || error.message?.includes('quota');
+            
+            if (is429 && attempt < maxRetries - 1) {
+                const delayMs = delays[attempt];
+                console.warn(`[WARN] Quota exceeded - waiting ${delayMs/1000}s before retry...`);
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+                continue; // Try again
+            }
+            
+            // Quota exceeded after all retries - return null to trigger fallback
+            if (is429) {
+                console.warn(`[WARN] Gemini quota exhausted after ${maxRetries} retries. Using Puppeteer stats only.`);
+                return null;  // Signal to use fallback
+            }
+            
+            // Non-quota error - throw it
+            throw error;
+        }
+    }
+}
 
 /**
  * Analyzes a social media post screenshot using Gemini Vision.
@@ -22,8 +70,9 @@ const client = apiKey ? new GoogleGenAI({ apiKey }) : null;
  */
 export async function analyzePostImage(imagePath, puppeteerStats = null) {
     try {
+        const client = getClient();
         if (!client) {
-            throw new Error('Gemini API client not initialized. Please set GEMINI_API_KEY in Settings.');
+            throw new Error('[ERR] Gemini API client not initialized. Please set GEMINI_API_KEY in Settings.');
         }
 
         console.log(`👁️ Analyzing image with AI: ${imagePath}`);
@@ -77,8 +126,8 @@ Extract the following information with HIGH PRECISION:
    - If in English, keep English (e.g., "Sales Group")
    - DO NOT translate
    - Common patterns:
-     * "Sender Name > Group Name" (שיתוף לקבוצה) → Group Name is after ">"
-     * "Sender Name שיתף ב-שם קבוצה" → Group Name is after "ב-"
+     * "Sender Name > Group Name" (Post shared to group) → Group Name is after ">"
+     * "Sender Name shared in Group Name" → Group Name is after "in"
      * "Sender Name shared to Group" → Group Name is after "to"
      * **NEW RULE**: If the name appears *immediately below* the small text that indicates the sender (e.g., "ARDEL" below the share line) → This is the Page/Group name
    - If NO group/page context is visible, return **null**
@@ -89,10 +138,10 @@ Extract the following information with HIGH PRECISION:
    - Return in format: DD/MM/YY HH:MM
    - Examples: "25/11/24 14:30", "20/10/24 09:15"
    - If only date visible: "25/11/24 00:00"
-   - If relative time ("2h ago", "5m", "לפני שעתיים"):
+   - If relative time ("2h ago", "5m", "2 hours ago"):
      * Current time is: ${currentTime}
      * Convert to actual DD/MM/YY HH:MM based on current time
-   - If you see "Yesterday" or "אתמול": calculate yesterday's date
+   - If you see "Yesterday" or similar: calculate yesterday's date
 
 4. **Content** (The full text content of the post):
    - Extract ALL visible text from the post
@@ -107,8 +156,8 @@ Extract the following information with HIGH PRECISION:
    - If it's a video, describe what happens based on visual context${validationInstructions}
 
 **EXAMPLE of SUCCESSFUL Extraction (to guide the model):**
-  * **If the top text is:** "פרסום חופשי כל הנתב 24/7 > Sender Name · November 3 at 5:47 AM · 🌍"
-  * **The JSON should be:** { "sender_name": "Sender Name", "group_name": "פרסום חופשי כל הנתב 24/7", "post_date": "03/11/25 05:47" }
+  * **If the top text is:** "Free listing all day 24/7 > Sender Name · November 3 at 5:47 AM · 🌍"
+  * **The JSON should be:** { "sender_name": "Sender Name", "group_name": "Free listing all day 24/7", "post_date": "03/11/25 05:47" }
   
   * **If the top text is:** "Sender Name shared a post to X Group..."
   * **The JSON should be:** { "sender_name": "Sender Name", "group_name": "X Group" }
@@ -142,11 +191,21 @@ Return the result ONLY as a valid JSON object with these exact keys:
             }
         ];
 
-        // Call Gemini (using same model as regular scraping)
-        const response = await client.models.generateContent({
-            model: 'models/gemini-2.0-flash-001',
-            contents: prompt
-        });
+        // Call Gemini WITH RETRY LOGIC for quota exceeded errors
+        const response = await callGeminiWithRetry(client, prompt);
+
+        // Fallback: If quota exhausted, use Puppeteer stats only
+        if (!response) {
+            console.warn('[FALLBACK] Using Puppeteer stats only (Gemini quota exhausted)');
+            return {
+                sender_name: puppeteerStats?.sender || 'Unknown',
+                group_name: puppeteerStats?.groupName || '',
+                post_date: puppeteerStats?.postDate || 'Unknown',
+                content: '[AI Analysis Skipped - Quota Exhausted]',
+                summary: '[קוטה של Gemini נגמרה - נתונים מ-Puppeteer בלבד]',
+                validation: puppeteerStats ? `Likes: ${puppeteerStats.likes || 0}, Comments: ${puppeteerStats.comments || 0}, Shares: ${puppeteerStats.shares || 0}` : ''
+            };
+        }
 
         const text = response.text;
 

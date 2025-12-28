@@ -14,12 +14,15 @@
 <body>
     <div class="container">
         <div class="header">
-            <img src="ICON-modified.png" alt="Web Scraper Logo"
-                style="width: 64px; height: 64px; margin-bottom: 10px; border-radius: 8px;">
-            <h1>Web Scraper</h1>
-            <p>Extract and analyze social media content</p>
-            <button class="btn btn-icon" id="settingsBtn" style="position: absolute; top: 20px; right: 20px;"
-                title="Settings">⚙️</button>
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                <div style="flex: 1; text-align: center;">
+                    <img src="ICON-modified.png" alt="Web Scraper Logo"
+                        style="width: 64px; height: 64px; margin-bottom: 10px; border-radius: 8px; display: block; margin-left: auto; margin-right: auto;">
+                    <h1>Web Scraper</h1>
+                    <p>Extract and analyze social media content</p>
+                </div>
+                <button class="btn btn-settings" id="settingsBtn" title="Settings">⚙️</button>
+            </div>
         </div>
 
         <!-- Settings Modal -->
@@ -48,7 +51,6 @@
                         <label><input type="checkbox" id="colSummary" checked> Summary</label>
                         <label><input type="checkbox" id="colLikes" checked> Likes</label>
                         <label><input type="checkbox" id="colComments" checked> Comments</label>
-                        <label><input type="checkbox" id="colShares" checked> Shares</label>
                     </div>
 
                     <div class="divider"></div>
@@ -71,10 +73,6 @@
                         <button id="repairCommentsBtn" class="action-btn warning-btn"
                             style="font-size: 0.9em; padding: 10px;">
                             <span class="icon">💬</span> Comments
-                        </button>
-                        <button id="repairSharesBtn" class="action-btn warning-btn"
-                            style="font-size: 0.9em; padding: 10px;">
-                            <span class="icon">📤</span> Shares
                         </button>
                         <button id="repairContentBtn" class="action-btn warning-btn"
                             style="font-size: 0.9em; padding: 10px;">
@@ -143,11 +141,11 @@
                     <h3>💾 Save Destination</h3>
                 </div>
                 <div class="tabs">
-                    <button class="tab active" data-target="csv">Local CSV</button>
+                    <button class="tab active" data-target="csv">Local Excel</button>
                     <button class="tab" data-target="sheets">Google Sheets</button>
                 </div>
 
-                <!-- CSV Tab -->
+                <!-- Excel Tab -->
                 <div class="tab-content active" id="csv-content">
                     <div class="form-group">
                         <label>Folder Path</label>
@@ -163,7 +161,7 @@
                     <div class="form-group">
                         <label>Or select existing file</label>
                         <div class="input-group">
-                            <input type="text" id="existingFile" placeholder="Select existing CSV file" readonly>
+                            <input type="text" id="existingFile" placeholder="Select existing Excel file" readonly>
                             <button class="btn btn-icon" id="browseFileBtn">📁</button>
                         </div>
                     </div>
@@ -233,7 +231,7 @@
             const fileNameInput = document.getElementById('fileName');
             if (fileNameInput) {
                 const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-                fileNameInput.value = `summaries_${timestamp}.csv`;
+                fileNameInput.value = `summaries_${timestamp}.xlsx`;
             }
         });
     </script>

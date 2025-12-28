@@ -13,7 +13,7 @@ const __dirname = path.dirname(__filename);
 const TOKEN_PATH = process.env.GOOGLE_TOKEN_PATH || path.join(__dirname, 'token.json');
 const CREDENTIALS_PATH = process.env.OAUTH_CREDENTIALS_PATH || path.join(__dirname, 'oauth_credentials.json');
 
-console.log('🔍 OAuth paths in sheets_oauth.mjs:');
+console.log('[INFO] OAuth paths in sheets_oauth.mjs:');
 console.log('   __dirname:', __dirname);
 console.log('   CREDENTIALS_PATH:', CREDENTIALS_PATH);
 console.log('   TOKEN_PATH:', TOKEN_PATH);
@@ -24,8 +24,8 @@ async function loadCredentials() {
     const content = await fs.readFile(CREDENTIALS_PATH, 'utf8');
     return JSON.parse(content);
   } catch (error) {
-    console.error(`❌ oauth_credentials.json not found at: ${CREDENTIALS_PATH}`);
-    console.error('📚 Follow the guide in OAUTH_SETUP.md to create the file');
+    console.error(`[ERR] oauth_credentials.json not found at: ${CREDENTIALS_PATH}`);
+    console.error('[INFO] Follow the guide in OAUTH_SETUP.md to create the file');
     throw new Error(`oauth_credentials.json not found at: ${CREDENTIALS_PATH}. Please ensure the file exists at this location.`);
   }
 }
@@ -47,16 +47,30 @@ async function createOAuth2Client() {
 async function loadSavedToken(oAuth2Client) {
   try {
     const token = await fs.readFile(TOKEN_PATH, 'utf8');
-    oAuth2Client.setCredentials(JSON.parse(token));
+    const parsedToken = JSON.parse(token);
+    oAuth2Client.setCredentials(parsedToken);
+    console.log('[OK] Loaded saved token from:', TOKEN_PATH);
+    console.log('[INFO] Token expires at:', new Date(parsedToken.expiry_date).toLocaleString());
     return true;
-  } catch {
+  } catch (error) {
+    console.log('[INFO] No saved token found at:', TOKEN_PATH);
+    console.log('[INFO] Error:', error.message);
     return false;
   }
 }
 
 // שמירת token
 async function saveToken(token) {
-  await fs.writeFile(TOKEN_PATH, JSON.stringify(token));
+  try {
+    await fs.writeFile(TOKEN_PATH, JSON.stringify(token));
+    console.log('[OK] Token saved to:', TOKEN_PATH);
+    if (token.expiry_date) {
+      console.log('[INFO] Token expires at:', new Date(token.expiry_date).toLocaleString());
+    }
+  } catch (error) {
+    console.error('[ERR] Failed to save token:', error.message);
+    throw error;
+  }
 }
 
 // התחברות דרך דפדפן
@@ -67,8 +81,8 @@ async function authenticateUser(oAuth2Client) {
       scope: ['https://www.googleapis.com/auth/spreadsheets'],
     });
 
-    console.log('\n🔐 פותח דפדפן להתחברות...');
-    console.log('אם הדפדפן לא נפתח, העתק את הקישור הזה:');
+    console.log('[INFO] Opening browser for authentication...');
+    console.log('If browser does not open, copy this link:');
     console.log(authUrl);
 
     let server = null;
@@ -100,12 +114,12 @@ async function authenticateUser(oAuth2Client) {
           oAuth2Client.setCredentials(tokens);
           await saveToken(tokens);
 
-          console.log('✅ Authentication completed!');
+          console.log('[OK] Authentication completed!');
 
           // Close server to free port 3000
           if (timeoutId) clearTimeout(timeoutId);
           server.close(() => {
-            console.log('✅ OAuth server closed, port 3000 freed');
+            console.log('[OK] OAuth server closed, port 3000 freed');
           });
 
           resolve(oAuth2Client);
@@ -122,13 +136,13 @@ async function authenticateUser(oAuth2Client) {
       return new Promise((resolvePort, rejectPort) => {
         server.on('error', (err) => {
           if (err.code === 'EADDRINUSE') {
-            console.log('⚠️ Port 3000 is busy, trying random port...');
+            console.log('[WARN] Port 3000 is busy, trying random port...');
             server.close();
             // Create new server on random port
             const newServer = http.createServer(server.listeners('request')[0]);
             newServer.listen(0, () => {
               const actualPort = newServer.address().port;
-              console.log(`✅ Server started on port ${actualPort}`);
+              console.log(`[OK] Server started on port ${actualPort}`);
               // Note: This will cause redirect_uri mismatch if not 3000
               // But authentication will still work for first-time setup
               resolvePort(newServer);
@@ -139,7 +153,7 @@ async function authenticateUser(oAuth2Client) {
         });
 
         server.listen(3000, () => {
-          console.log('✅ OAuth server listening on port 3000');
+          console.log('[OK] OAuth server listening on port 3000');
           resolvePort(server);
         });
       });
@@ -160,6 +174,7 @@ async function authenticateUser(oAuth2Client) {
 
 // קבלת Auth Client מוכן לשימוש
 export async function getAuthenticatedClient() {
+  console.log('[INFO] getAuthenticatedClient called');
   const oAuth2Client = await createOAuth2Client();
 
   // נסה לטעון token קיים
@@ -167,7 +182,10 @@ export async function getAuthenticatedClient() {
 
   if (!hasToken) {
     // אין token - צריך להתחבר
+    console.log('[INFO] No saved token, initiating authentication...');
     await authenticateUser(oAuth2Client);
+  } else {
+    console.log('[OK] Using existing token - no authentication needed');
   }
 
   return oAuth2Client;
@@ -250,7 +268,7 @@ export async function testConnection(spreadsheetUrl) {
 export async function logout() {
   try {
     await fs.unlink(TOKEN_PATH);
-    console.log('✅ התנתקת בהצלחה');
+    console.log('[OK] Logged out successfully');
     return { success: true };
   } catch {
     return { success: false, error: 'אין משתמש מחובר' };

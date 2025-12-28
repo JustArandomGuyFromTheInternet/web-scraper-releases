@@ -17,44 +17,44 @@ export async function optimizeImage(inputPath, options = {}) {
     const quality = options.quality || 45;
 
     try {
-        console.log(`📉 מתחיל אופטימיזציה של תמונה: ${inputPath}`);
+        console.log(`📉 Starting image optimization: ${inputPath}`);
 
         // Get image metadata
         const metadata = await sharp(inputPath).metadata();
         const originalWidth = metadata.width;
         const originalHeight = metadata.height;
-        console.log(`   מידות מקוריות: ${originalWidth}x${originalHeight}`);
+        console.log(`   Original dimensions: ${originalWidth}x${originalHeight}`);
 
         // Create output path (replace extension with .jpg)
         const parsedPath = path.parse(inputPath);
         const outputPath = path.join(parsedPath.dir, `${parsedPath.name}_optimized.jpg`);
 
-        // 🎯 TIERED OPTIMIZATION: הפחתה מדורגת לפי גודל
+        // 🎯 TIERED OPTIMIZATION: Gradual reduction based on size
         let pipeline = sharp(inputPath);
-        const LARGE_THRESHOLD = 1800;  // מסך מלא
-        const MEDIUM_THRESHOLD = 800;   // פוסט בינוני
+        const LARGE_THRESHOLD = 1800;  // Full screen
+        const MEDIUM_THRESHOLD = 800;   // Regular post
 
         if (originalWidth > LARGE_THRESHOLD) {
-            // תמונה גדולה (מסך מלא) - הקטן ב-40%
-            const newWidth = Math.round(originalWidth * 0.6);  // 40% הפחתה = 60% נותר
+            // Large image (full screen) - reduce by 40%
+            const newWidth = Math.round(originalWidth * 0.6);  // 40% reduction = 60% remains
             const newHeight = Math.round(originalHeight * 0.6);
             pipeline = pipeline.resize(newWidth, newHeight, {
                 withoutEnlargement: true,
                 fit: 'inside'
             });
-            console.log(`   🖥️ מסך מלא - הקטנה 40%: ${originalWidth}x${originalHeight} → ${newWidth}x${newHeight}`);
+            console.log(`   🖥️ Full screen - 40% reduction: ${originalWidth}x${originalHeight} → ${newWidth}x${newHeight}`);
         } else if (originalWidth > MEDIUM_THRESHOLD) {
-            // תמונה בינונית (פוסט רגיל) - הקטן ב-30%
-            const newWidth = Math.round(originalWidth * 0.7);  // 30% הפחתה = 70% נותר
+            // Medium image (regular post) - reduce by 30%
+            const newWidth = Math.round(originalWidth * 0.7);  // 30% reduction = 70% remains
             const newHeight = Math.round(originalHeight * 0.7);
             pipeline = pipeline.resize(newWidth, newHeight, {
                 withoutEnlargement: true,
                 fit: 'inside'
             });
-            console.log(`   📱 פוסט בינוני - הקטנה 30%: ${originalWidth}x${originalHeight} → ${newWidth}x${newHeight}`);
+            console.log(`   📱 Regular post - 30% reduction: ${originalWidth}x${originalHeight} → ${newWidth}x${newHeight}`);
         } else {
-            // תמונה קטנה - שמור על גודל מקורי
-            console.log(`   📷 תמונה קטנה - שומר על גודל מקורי: ${originalWidth}x${originalHeight}`);
+            // Small image - keep original size
+            console.log(`   📷 Small image - keeping original size: ${originalWidth}x${originalHeight}`);
         }
 
         await pipeline
@@ -69,17 +69,17 @@ export async function optimizeImage(inputPath, options = {}) {
         const optimizedSizeMB = (optimizedStats.size / (1024 * 1024)).toFixed(2);
         const reduction = ((1 - optimizedStats.size / originalStats.size) * 100).toFixed(1);
 
-        console.log(`📊 תוצאות אופטימיזציה:`);
-        console.log(`   גודל מקורי: ${originalSizeMB} MB`);
-        console.log(`   גודל מופחת: ${optimizedSizeMB} MB`);
-        console.log(`   חיסכון: ${reduction}%`);
-        console.log(`✅ תמונה מאופטמת נשמרה ב: ${outputPath}`);
+        console.log(`📊 Optimization results:`);
+        console.log(`   Original size: ${originalSizeMB} MB`);
+        console.log(`   Optimized size: ${optimizedSizeMB} MB`);
+        console.log(`   Savings: ${reduction}%`);
+        console.log(`✅ Optimized image saved to: ${outputPath}`);
 
         return outputPath;
 
     } catch (error) {
-        console.error('❌ שגיאה באופטימיזציה:', error);
-        console.warn('⚠️ משתמש בתמונה המקורית');
+        console.error('❌ Optimization error:', error);
+        console.warn('⚠️ Using original image');
         return inputPath; // Return original on error
     }
 }

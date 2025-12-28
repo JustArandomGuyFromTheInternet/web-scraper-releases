@@ -35,11 +35,11 @@ body {
 
 .header {
     background: var(--bg-panel);
-    padding: 32px;
+    padding: 24px;
     border-radius: 12px;
     margin-bottom: 24px;
     box-shadow: var(--shadow);
-    text-align: center;
+    position: relative;
 }
 
 .header h1 {
@@ -202,6 +202,30 @@ textarea {
 
 .btn-icon {
     padding: 10px 16px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    border-radius: 8px;
+    font-size: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.btn-settings {
+    padding: 10px 14px;
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
 }
 
 .btn-sm {

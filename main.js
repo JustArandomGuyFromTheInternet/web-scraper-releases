@@ -1,11 +1,54 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const { spawn } = require('child_process');
 const WebSocket = require('ws');
 const { google } = require('googleapis');
 const { readFileSync, writeFileSync } = require('fs');
 require('dotenv').config();
+
+// Helper function to resolve module paths
+function getModulePath(moduleName) {
+  const possiblePaths = [
+    path.join(__dirname, moduleName),
+    path.join(app.getAppPath(), moduleName),
+    path.join(app.getAppPath().replace('app.asar', 'app.asar.unpacked'), moduleName)
+  ];
+  
+  for (const tryPath of possiblePaths) {
+    if (fsSync.existsSync(tryPath)) {
+      console.log(`[Path] Found: ${tryPath}`);
+      return tryPath;
+    }
+  }
+  
+  throw new Error(`Cannot find module: ${moduleName}. Tried: ${possiblePaths.join(', ')}`);
+}
+
+// Helper function to find Chrome executable
+async function getChromePath() {
+  const possiblePaths = [
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    path.join(process.env.ProgramFiles, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    path.join(process.env['ProgramFiles(x86)'], 'Google', 'Chrome', 'Application', 'chrome.exe')
+  ];
+  
+  for (const chromePath of possiblePaths) {
+    try {
+      if (fsSync.existsSync(chromePath)) {
+        console.log(`[Chrome] Found at: ${chromePath}`);
+        return chromePath;
+      }
+    } catch (e) {
+      // Skip invalid paths
+    }
+  }
+  
+  return null; // Chrome not found
+}
 
 // 🔄 Auto-Updater Configuration
 const { autoUpdater } = require('electron-updater');
@@ -198,7 +241,7 @@ ipcMain.handle('load-oauth-credentials', async () => {
     // Copy file to userData
     await fs.copyFile(sourceFile, targetFile);
 
-    console.log(`✅ OAuth credentials copied to: ${targetFile}`);
+    console.log(`[OAuth] ✓ OAuth credentials copied to: ${targetFile}`);
 
     return {
       success: true,
@@ -224,14 +267,12 @@ ipcMain.handle('run-scrape', async (event, payload) => {
     }
 
     // Use the new scrape controller
-    // In packaged app, .mjs files are in asar.unpacked
     let scriptPath;
-    if (app.isPackaged) {
-      // In production: use .asar.unpacked path
-      scriptPath = path.join(__dirname.replace('app.asar', 'app.asar.unpacked'), 'src', 'scrape_controller.mjs');
-    } else {
-      // In development: regular path
-      scriptPath = path.join(__dirname, 'src', 'scrape_controller.mjs');
+    try {
+      scriptPath = getModulePath('src/scrape_controller.mjs');
+      console.log(`[SUCCESS] Found scrape_controller.mjs at: ${scriptPath}`);
+    } catch (error) {
+      throw new Error(`Failed to locate scrape_controller.mjs: ${error.message}`);
     }
 
     // Support legacy array-of-links or new payload { links, spreadsheetId, sheetName, smartTableSync }
@@ -239,6 +280,7 @@ ipcMain.handle('run-scrape', async (event, payload) => {
     let spreadsheetId = null;
     let sheetName = null;
     let smartTableSync = false;
+    let existingFile = null;
 
     if (Array.isArray(payload)) {
       links = payload;
@@ -247,6 +289,7 @@ ipcMain.handle('run-scrape', async (event, payload) => {
       spreadsheetId = payload.spreadsheetId || null;
       sheetName = payload.sheetName || null;
       smartTableSync = payload.smartTableSync || false;
+      existingFile = payload.existingFile || null;
     } else {
       throw new Error('Invalid payload for run-scrape. Expected links array or { links, spreadsheetId, sheetName }');
     }
@@ -256,7 +299,7 @@ ipcMain.handle('run-scrape', async (event, payload) => {
     const userDataPath = app.getPath('userData');
     const linksPath = path.join(userDataPath, 'links.json');
     await fs.writeFile(linksPath, JSON.stringify(linksData, null, 2));
-    console.log(`✅ Wrote ${linksData.length} links to ${linksPath}`);
+    console.log(`[INFO] Wrote ${linksData.length} links to ${linksPath}`);
 
     // Build environment for child process so it can read SPREADSHEET_ID / SHEET_NAME
     const envVars = Object.assign({}, process.env);
@@ -266,9 +309,31 @@ ipcMain.handle('run-scrape', async (event, payload) => {
     envVars.SCREENSHOTS_DIR = path.join(userDataPath, 'screenshots');
     envVars.OAUTH_CREDENTIALS_PATH = process.env.OAUTH_CREDENTIALS_PATH;
     envVars.GOOGLE_TOKEN_PATH = process.env.GOOGLE_TOKEN_PATH;
+    
+    // CRITICAL: Explicitly pass API key from settings to child process
+    // This ensures settings override .env file in child process
+    if (process.env.GEMINI_API_KEY) {
+      envVars.GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+      const keyPreview = process.env.GEMINI_API_KEY.substring(0, 15);
+      console.log(`[OK] Passing API key to scraper: ${keyPreview}...`);
+      console.log(`[OK] Full key length: ${process.env.GEMINI_API_KEY.length} characters`);
+    } else {
+      console.log(`[ERR] No GEMINI_API_KEY in process.env!`);
+    }
 
     // Ensure Chrome profile is in a writable location (userData)
     envVars.USER_DATA_DIR = path.join(userDataPath, 'chrome-profile');
+    
+    // CRITICAL: Pass Chrome executable path to child process
+    // This allows Puppeteer to find system Chrome instead of bundled Chromium
+    const chromeExePath = process.env.CHROME_EXE || 
+      (await getChromePath ? await getChromePath() : null);
+    if (chromeExePath) {
+      envVars.CHROME_EXE = chromeExePath;
+      console.log(`[OK] Passing Chrome path to scraper: ${chromeExePath}`);
+    } else {
+      console.log(`[WARN] No Chrome path found for child process`);
+    }
 
     // Resolve output directory: if relative, make it absolute in userData
     let outputDir = payload.savePath || path.join(userDataPath, 'output');
@@ -276,6 +341,20 @@ ipcMain.handle('run-scrape', async (event, payload) => {
       outputDir = path.join(userDataPath, 'output');
     }
     envVars.OUTPUT_DIR = outputDir;
+    
+    // Handle existing Excel file: if provided, use it; otherwise create new
+    if (existingFile) {
+      envVars.EXCEL_FILE = existingFile;
+      console.log(`[OK] Using existing Excel file: ${existingFile}`);
+    } else {
+      // Create new Excel file
+      const fileName = payload.fileName || 'summaries.xlsx';
+      const excelPath = path.join(outputDir, fileName);
+      envVars.EXCEL_FILE = excelPath;
+      
+      // Ensure directory exists
+      await fs.mkdir(outputDir, { recursive: true });
+    }
 
     console.log('\n=== MAIN.JS DEBUG ===');
     console.log('Received payload:', JSON.stringify(payload, null, 2));
@@ -293,7 +372,7 @@ ipcMain.handle('run-scrape', async (event, payload) => {
     if (payload.updateExisting) envVars.UPDATE_EXISTING = 'true';
     // Always set VISUAL_MODE to true if visualMode is in payload (default behavior)
     envVars.VISUAL_MODE = (payload.visualMode !== false) ? 'true' : 'false';
-    console.log(`Setting VISUAL_MODE=${envVars.VISUAL_MODE}`);
+    console.log(`[INFO] Setting VISUAL_MODE=${envVars.VISUAL_MODE}`);
 
     scrapingProcess = spawn('node', [scriptPath], {
       env: envVars,
@@ -400,7 +479,7 @@ ipcMain.on('stop-scraping', () => {
 // Repair Data Handler (legacy - for backward compatibility)
 ipcMain.handle('repair-data', async (event, payload) => {
   try {
-    const modulePath = 'file://' + path.join(__dirname, 'src', 'repair_manager.mjs').replace(/\\/g, '/');
+    const modulePath = 'file://' + getModulePath('src/repair_manager.mjs').replace(/\\/g, '/');
     const { repairSheetData } = await import(modulePath);
     const spreadsheetId = payload?.spreadsheetId || process.env.SPREADSHEET_ID;
     const sheetName = payload?.sheetName || process.env.SHEET_NAME || 'גיליון1';
@@ -496,7 +575,7 @@ ipcMain.handle('open-screenshots-folder', async () => {
 // Test Google Sheets connection with OAuth
 ipcMain.handle('test-sheets-connection', async (event, { url }) => {
   try {
-    const modulePath = 'file://' + path.join(__dirname, 'sheets_oauth.mjs').replace(/\\/g, '/');
+    const modulePath = 'file://' + getModulePath('sheets_oauth.mjs').replace(/\\/g, '/');
 
     // If no URL provided, just check if authenticated
     if (!url) {
@@ -539,7 +618,7 @@ ipcMain.handle('test-sheets-connection', async (event, { url }) => {
 ipcMain.handle('authenticate-google', async () => {
   try {
     console.log('Starting Google OAuth authentication...');
-    const modulePath = 'file://' + path.join(__dirname, 'sheets_oauth.mjs').replace(/\\/g, '/');
+    const modulePath = 'file://' + getModulePath('sheets_oauth.mjs').replace(/\\/g, '/');
     const { getAuthenticatedClient } = await import(modulePath);
 
     // This will trigger OAuth flow if no valid token exists
@@ -555,7 +634,7 @@ ipcMain.handle('authenticate-google', async () => {
 // Check if user is authenticated with OAuth
 ipcMain.handle('is-authenticated', async () => {
   try {
-    const modulePath = 'file://' + path.join(__dirname, 'sheets_oauth.mjs').replace(/\\/g, '/');
+    const modulePath = 'file://' + getModulePath('sheets_oauth.mjs').replace(/\\/g, '/');
     const { isAuthenticated } = await import(modulePath);
     return await isAuthenticated();
   } catch (error) {
@@ -567,7 +646,7 @@ ipcMain.handle('is-authenticated', async () => {
 ipcMain.handle('force-google-auth', async () => {
   try {
     console.log('Starting forced Google OAuth...');
-    const modulePath = 'file://' + path.join(__dirname, 'sheets_oauth.mjs').replace(/\\/g, '/');
+    const modulePath = 'file://' + getModulePath('sheets_oauth.mjs').replace(/\\/g, '/');
     const { getAuthenticatedClient } = await import(modulePath);
 
     // This will trigger OAuth flow if no token exists
@@ -583,7 +662,7 @@ ipcMain.handle('force-google-auth', async () => {
 // Logout from OAuth
 ipcMain.handle('logout-sheets', async () => {
   try {
-    const modulePath = 'file://' + path.join(__dirname, 'sheets_oauth.mjs').replace(/\\/g, '/');
+    const modulePath = 'file://' + getModulePath('sheets_oauth.mjs').replace(/\\/g, '/');
     const { logout } = await import(modulePath);
     return await logout();
   } catch (error) {
@@ -591,25 +670,32 @@ ipcMain.handle('logout-sheets', async () => {
   }
 });
 
-// Open browser for OAuth
+// Open browser for Facebook/Instagram login
 ipcMain.handle('open-browser', async () => {
   try {
-    const modulePath = 'file://' + path.join(__dirname, 'open_browser.mjs').replace(/\\/g, '/');
-    const { openBrowser } = await import(modulePath);
-
-    // Run in background - don't wait for it to complete
-    openBrowser().catch(error => {
-      console.error('Browser error:', error);
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('scraping-output', {
-          type: 'error',
-          message: `Browser error: ${error.message}`
-        });
-      }
-    });
-    return { success: true, message: 'Browser opening...' };
+    // Use Chrome executable path from config or environment, with fallback to registry
+    const chromeExe = process.env.CHROME_EXE || 
+                      (await getChromePath()) ||
+                      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+    const userDataDir = path.join(app.getPath('userData'), 'chrome-profile');
+    
+    // Make sure the directory exists
+    await fs.mkdir(userDataDir, { recursive: true });
+    
+    // Open Chrome with the user data dir pointing to Facebook
+    // User will login here and cookies will be saved for scraping
+    spawn(chromeExe, [
+      `--user-data-dir=${userDataDir}`,
+      '--profile-directory=Default',
+      'https://www.facebook.com',
+      'https://www.instagram.com',
+      '--force-device-scale-factor=0.85'
+    ], { detached: true });
+    
+    console.log('[OK] Chrome opened with Facebook/Instagram - please login');
+    return { success: true, message: 'Chrome opened - please login to Facebook and Instagram' };
   } catch (error) {
-    console.error('Failed to start browser:', error);
+    console.error('[ERR] Failed to open browser:', error);
     throw new Error(`Failed to open browser: ${error.message}`);
   }
 });
@@ -633,9 +719,9 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, "preload.js"), // Use __dirname
+      preload: getModulePath('preload.js'),
     },
-    icon: path.join(__dirname, "icon.png"),
+    icon: path.join(__dirname, 'ICON-modified.png'),
     titleBarStyle: 'default',
   });
 
@@ -731,7 +817,7 @@ app.whenReady().then(async () => {
     process.env.OAUTH_CREDENTIALS_PATH = OAUTH_CREDENTIALS_PATH;
     process.env.GOOGLE_TOKEN_PATH = GOOGLE_TOKEN_PATH;
 
-    console.log('🔧 Development mode: OAuth will use userData files');
+    console.log('[DEV] Development mode: OAuth will use userData files');
     console.log('   OAUTH_CREDENTIALS_PATH:', OAUTH_CREDENTIALS_PATH);
     console.log('   GOOGLE_TOKEN_PATH:', GOOGLE_TOKEN_PATH);
   }
@@ -744,9 +830,9 @@ app.whenReady().then(async () => {
   try {
     await fs.mkdir(screenshotsDir, { recursive: true });
     await fs.mkdir(outputDir, { recursive: true });
-    console.log('✅ Required directories created/verified');
+    console.log('[INFO] Required directories created/verified');
   } catch (error) {
-    console.error('❌ Failed to create directories:', error);
+    console.error('[ERR] Failed to create directories:', error);
   }
 
   createWindow();
@@ -772,13 +858,14 @@ app.on("activate", () => {
 
 // Initialize WebSocket server for real-time communication
 function initializeWebSocket() {
-  webSocketServer = new WebSocket.Server({ port: 8080 });
+  try {
+    webSocketServer = new WebSocket.Server({ port: 8080 });
 
-  webSocketServer.on('connection', (ws) => {
-    console.log('Frontend connected via WebSocket');
+    webSocketServer.on('connection', (ws) => {
+      console.log('Frontend connected via WebSocket');
 
-    ws.on('message', (message) => {
-      try {
+      ws.on('message', (message) => {
+        try {
         const data = JSON.parse(message.toString());
         handleWebSocketMessage(data);
       } catch (error) {
@@ -791,7 +878,24 @@ function initializeWebSocket() {
     });
   });
 
-  console.log('WebSocket server started on port 8080');
+    webSocketServer.on('error', (error) => {
+      if (error.code === 'EADDRINUSE') {
+        console.log('[WARN] Port 8080 already in use, WebSocket server skipped');
+        webSocketServer = null;
+      } else {
+        console.error('WebSocket server error:', error);
+      }
+    });
+
+    console.log('WebSocket server started on port 8080');
+  } catch (error) {
+    if (error.code === 'EADDRINUSE') {
+      console.log('[WARN] Port 8080 already in use, WebSocket server skipped');
+      webSocketServer = null;
+    } else {
+      console.error('Failed to start WebSocket server:', error);
+    }
+  }
 }
 
 // Handle WebSocket messages from frontend
@@ -805,3 +909,4 @@ function handleWebSocketMessage(data) {
       break;
   }
 }
+

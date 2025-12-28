@@ -4,13 +4,13 @@ import path from 'path';
 
 // Simple logger to match existing format
 export function log(msg, level = 'info', meta = {}) {
-  const timestamp = new Date().toLocaleTimeString('he-IL');
-  let icon = 'ℹ️';
+  const timestamp = new Date().toLocaleTimeString('en-US');
+  let icon = '[INFO]';
   
-  if (level === 'success') icon = '✅';
-  else if (level === 'warning') icon = '⚠️';
-  else if (level === 'error') icon = '❌';
-  else if (level === 'debug') icon = '🐛';
+  if (level === 'success') icon = '[OK]';
+  else if (level === 'warning') icon = '[WARN]';
+  else if (level === 'error') icon = '[ERR]';
+  else if (level === 'debug') icon = '[DBG]';
 
   const indent = meta.indent ? '   ' : '';
   const stepInfo = meta.step ? `[${meta.step}/${meta.total}] ` : '';

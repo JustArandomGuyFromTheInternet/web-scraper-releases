@@ -7,7 +7,8 @@ Web Scraper is a powerful desktop application for extracting and analyzing conte
 - 🔍 **Multi-Platform Scraping**: Facebook, Instagram, TikTok support
 - 🤖 **AI-Powered Analysis**: Uses Google Gemini AI for content extraction
 - 📊 **Google Sheets Integration**: Direct export to spreadsheets
-- 🔄 **Automatic Updates**: Stay up-to-date with the latest features
+- � **Excel Export**: Native .xlsx format with full Unicode support
+- �🔄 **Automatic Updates**: Stay up-to-date with the latest features
 - 🖼️ **Visual Capture**: Screenshots with intelligent optimization
 - 🔧 **Data Repair Tools**: Fix missing information automatically
 
@@ -51,9 +52,20 @@ npm run build
 ## Usage
 
 1. **Add Links**: Paste social media URLs (one per line)
-2. **Choose Destination**: Select CSV file or Google Sheets
+2. **Choose Destination**: Select Excel file (.xlsx) or Google Sheets
 3. **Start Scraping**: Click "START SCRAPING" button
 4. **Monitor Progress**: View real-time logs in the Activity Log
+5. **Open Results**: Excel file opens automatically with full Unicode support for Hebrew and other languages
+
+## Output Format
+
+### Excel Export (.xlsx)
+- Native Microsoft Excel format
+- Full support for Hebrew and multi-language text
+- Automatic column headers:
+  - Timestamp, Sender_Name, Post_Date, URL
+  - Status, Group_Name, Summary
+  - Likes, Comments, Validation
 
 ## Automatic Updates
 

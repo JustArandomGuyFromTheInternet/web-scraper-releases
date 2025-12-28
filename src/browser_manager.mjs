@@ -24,12 +24,15 @@ export async function launchBrowser() {
 
     // Try multiple launch strategies
     const strategies = [
-        // Strategy 1: With userDataDir + profile (PRIORITY - keeps Facebook login!)
+        // Strategy 1: With userDataDir + profile + system Chrome (PRIORITY - keeps Facebook login!)
         async () => {
             if (!USER_DATA_DIR || USER_DATA_DIR.trim() === '') {
                 throw new Error('No user data dir configured');
             }
 
+            log(`Using USER_DATA_DIR: ${USER_DATA_DIR}`, 'info');
+            log(`Using PROFILE_DIR: ${PROFILE_DIR}`, 'info');
+            
             await fs.mkdir(USER_DATA_DIR, { recursive: true });
 
             const opts = {
@@ -41,7 +44,9 @@ export async function launchBrowser() {
                     '--disable-dev-shm-usage',
                     '--disable-accelerated-2d-canvas',
                     '--disable-gpu',
-                    '--force-device-scale-factor=0.85',  // 🎯 זה יוצר zoom out!
+                    '--force-device-scale-factor=0.85',  // 🎯 zoom out 85%
+                    '--disable-sync',  // Disable Chrome sync to avoid conflicts
+                    '--disable-breakpad',  // Disable crash reporting
                 ]
             };
 
@@ -50,33 +55,25 @@ export async function launchBrowser() {
                 opts.args.push(`--profile-directory=${PROFILE_DIR}`);
             }
 
-            // Add Chrome executable if configured
-            if (CHROME_EXE && CHROME_EXE.trim() !== '') {
+            // Add Chrome executable if configured AND exists
+            if (CHROME_EXE && CHROME_EXE.trim() !== '' && CHROME_EXE !== 'chrome') {
                 try {
                     await fs.access(CHROME_EXE);
                     opts.executablePath = CHROME_EXE;
+                    log(`Using system Chrome at: ${CHROME_EXE}`, 'success');
                 } catch {
-                    // Continue without custom Chrome
+                    log(`Chrome not accessible at: ${CHROME_EXE}`, 'warning');
+                    log('Will continue without explicit path...', 'info');
                 }
             }
 
             return await puppeteer.launch(opts);
         },
 
-        // Strategy 2: With custom Chrome but no profile
+        // Strategy 2: Simple launch with Puppeteer defaults (no profile, no explicit Chrome)
         async () => {
-            if (!CHROME_EXE || CHROME_EXE.trim() === '') {
-                throw new Error('No Chrome executable configured');
-            }
-
-            try {
-                await fs.access(CHROME_EXE);
-            } catch {
-                throw new Error('Chrome executable not found');
-            }
-
-            return await puppeteer.launch({
-                executablePath: CHROME_EXE,
+            log('Trying Puppeteer with defaults (no profile)...', 'info');
+            const opts = {
                 headless: true,
                 args: [
                     '--no-sandbox',
@@ -84,24 +81,24 @@ export async function launchBrowser() {
                     '--disable-dev-shm-usage',
                     '--disable-accelerated-2d-canvas',
                     '--disable-gpu',
-                    '--force-device-scale-factor=0.85',  // 🎯 זום אאוט 85%
+                    '--force-device-scale-factor=0.85',
+                    '--disable-sync',  // Disable Chrome sync to avoid conflicts
+                    '--disable-breakpad',  // Disable crash reporting
                 ]
-            });
-        },
+            };
 
-        // Strategy 3: Minimal Puppeteer bundled Chromium (fallback)
-        async () => {
-            return await puppeteer.launch({
-                headless: true,
-                args: [
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-accelerated-2d-canvas',
-                    '--disable-gpu',
-                    '--force-device-scale-factor=0.85',  // 🎯 זום אאוט 85%
-                ]
-            });
+            // Also try to use system Chrome here
+            if (CHROME_EXE && CHROME_EXE.trim() !== '' && CHROME_EXE !== 'chrome') {
+                try {
+                    await fs.access(CHROME_EXE);
+                    opts.executablePath = CHROME_EXE;
+                    log(`Using system Chrome at: ${CHROME_EXE}`, 'success');
+                } catch (e) {
+                    log(`Chrome not accessible: ${e.message}`, 'warning');
+                }
+            }
+
+            return await puppeteer.launch(opts);
         }
     ];
 
@@ -129,12 +126,12 @@ export async function launchBrowser() {
 export async function newConfiguredPage(browser) {
     const page = await browser.newPage();
 
-    // 🎯 הגדר viewport גדול יותר כדי לנצל את ה-zoom out
-    // במקום 1920x1080, נשתמש ב-2258x1270 (בערך) - זה ייתן לנו פי 1.17 תוכן!
+    // 🎯 Set larger viewport to take advantage of zoom out
+    // Instead of 1920x1080, we use 2258x1270 (approximately) - this gives us 1.17x more content!
     await page.setViewport({
         width: 2258,   // 1920 / 0.85
         height: 1270,  // 1080 / 0.85
-        deviceScaleFactor: 1  // שמור על 1 כי ה-zoom כבר בהגדרות הדפדפן
+        deviceScaleFactor: 1  // Keep at 1 since zoom is already in browser settings
     });
 
     await page.setExtraHTTPHeaders({ 'Accept-Language': 'he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7' });
@@ -146,9 +143,9 @@ export async function newConfiguredPage(browser) {
         Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
     });
 
-    // 🎯 אופציה נוספת: הגדר zoom דרך CSS (גיבוי אם --force-device-scale-factor לא עובד)
+    // 🎯 Additional option: Set zoom via CSS (fallback if --force-device-scale-factor doesn't work)
     await page.evaluateOnNewDocument(() => {
-        // זה יוסיף zoom: 0.85 ל-body אחרי טעינת הדף
+        // This adds zoom: 0.85 to body after page loads
         document.addEventListener('DOMContentLoaded', () => {
             document.body.style.zoom = '0.85';
         });
@@ -171,6 +168,18 @@ export async function navigateWithRetry(browser, url, name) {
             await page.evaluate(() => {
                 document.body.style.zoom = '0.85';
             });
+            
+            // 🔐 Wait for login indicators to appear (profile pic, name, etc.)
+            // This ensures the page has fully loaded with authentication
+            try {
+                await Promise.race([
+                    page.waitForSelector('[role="navigation"]', { timeout: 5000 }).catch(() => {}),
+                    page.waitForSelector('img[alt*="profile"], img[alt*="Avatar"]', { timeout: 5000 }).catch(() => {}),
+                    page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 5000 }).catch(() => {})
+                ]);
+            } catch (e) {
+                log('Skipping auth wait (page might not have auth elements)', 'debug');
+            }
 
             return page;
         } catch (e) {

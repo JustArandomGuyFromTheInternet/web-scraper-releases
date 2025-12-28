@@ -11,7 +11,7 @@ import { capturePostScreenshot } from '../visual_engine/screenshot.mjs';
 import { optimizeImage } from '../visual_engine/image_optimizer.mjs';
 
 const CREDENTIALS_PATH = process.env.CREDENTIALS_PATH || 'credentials.json';
-const OUT_DIR = path.join(process.cwd(), 'out_new');
+const OUT_DIR = process.env.OUTPUT_DIR || path.join(process.cwd(), 'out_new');
 const JSONL_FILE = path.join(OUT_DIR, 'summaries.jsonl');
 
 // Global flag to stop repair process
@@ -159,7 +159,7 @@ async function tryNewScreenshotAndAI(url, field) {
         await waitForLikelyContent(page, url);
 
         // Take screenshot
-        const screenshotsDir = path.join(process.cwd(), 'visual_engine', 'screen_shots');
+        const screenshotsDir = process.env.SCREENSHOTS_DIR || path.join(process.cwd(), 'visual_engine', 'screen_shots');
         await fs.mkdir(screenshotsDir, { recursive: true });
         const sanitizedUrl = url.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 100);
         const screenshotPath = path.join(screenshotsDir, `repair_${sanitizedUrl}_${Date.now()}.jpg`);

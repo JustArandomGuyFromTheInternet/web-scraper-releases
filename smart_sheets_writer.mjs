@@ -107,12 +107,12 @@ export async function smartWriteToSheet({
   sheetName,
   url,
   senderName,
-  postDate,
   groupName,
+  postDate,
   summary,
-  validation,
   likes = 0,
-  comments = 0
+  comments = 0,
+  validation
 }) {
   const sheets = google.sheets({ version: 'v4', auth: await getAuthClient() });
 

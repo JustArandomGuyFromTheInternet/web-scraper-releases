@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { log } from './logger.mjs';
+import XLSX from 'xlsx';
 
 // Get current directory for this module
 const __filename = fileURLToPath(import.meta.url);
@@ -54,30 +55,36 @@ async function loadSheetsWriter() {
 // Configuration
 const OUT_DIR = process.env.OUTPUT_DIR || path.join(process.cwd(), 'out_new');
 const JSONL_FILE = path.join(OUT_DIR, 'summaries.jsonl');
-const CSV_FILE = path.join(OUT_DIR, 'summaries.csv');
+const EXCEL_FILE = process.env.EXCEL_FILE || path.join(OUT_DIR, 'summaries.xlsx');
+
+// Store rows in memory for Excel output
+let excelRows = [];
 
 export async function ensureOutFiles() {
     try {
         await fs.mkdir(OUT_DIR, { recursive: true });
 
-        // Delete old files to start fresh
+        // Delete old JSONL to start fresh
         try {
             await fs.unlink(JSONL_FILE);
-            log('Deleted old summaries.jsonl', 'info');
+            log('Cleared old JSONL file', 'info');
         } catch {
             // File doesn't exist, that's fine
         }
 
-        try {
-            await fs.unlink(CSV_FILE);
-            log('Deleted old summaries.csv', 'info');
-        } catch {
-            // File doesn't exist, that's fine
+        // Delete old Excel file to start fresh (unless explicitly provided)
+        if (!process.env.EXCEL_FILE) {
+            try {
+                await fs.unlink(EXCEL_FILE);
+                log('Cleared old Excel file', 'info');
+            } catch {
+                // File doesn't exist, that's fine
+            }
         }
 
-        // Create fresh CSV with headers
-        await fs.writeFile(CSV_FILE, '\uFEFFTimestamp,Name,Date,URL,Status,AI_Sender,AI_Date,AI_Group,AI_Summary,Validation\n');
-        log('Created fresh output files', 'success');
+        // Initialize empty Excel rows array
+        excelRows = [];
+        log('Initialized Excel output', 'success');
     } catch (e) {
         log(`Error creating output files: ${e.message}`, 'error');
     }
@@ -92,28 +99,39 @@ export async function appendJsonl(rec) {
 }
 
 export async function appendSheetsRow({ url, sender_name, post_date, group_name, summary, likes, comments, shares, validation }) {
-    // CSV Append
+    // Excel Append (in-memory)
     try {
-        const row = [
-            new Date().toLocaleString('he-IL'),
-            csvEscape(sender_name),
-            csvEscape(post_date),
-            csvEscape(url),
-            'OK',
-            csvEscape(sender_name),
-            csvEscape(post_date),
-            csvEscape(group_name),
-            csvEscape(summary),
-            csvEscape(validation)
-        ].join(',') + '\n';
-        await fs.appendFile(CSV_FILE, row);
+        const timestamp = new Date().toLocaleString('en-US');
+        excelRows.push({
+            'Timestamp': timestamp,
+            'Sender_Name': sender_name || '',
+            'Post_Date': post_date || '',
+            'URL': url || '',
+            'Status': 'OK',
+            'Group_Name': group_name || '',
+            'Summary': summary || '',
+            'Likes': likes || 0,
+            'Comments': comments || 0,
+            'Validation': validation || ''
+        });
+        log('Added row to Excel buffer', 'info');
     } catch (e) {
-        log(`Failed to append to CSV: ${e.message}`, 'error');
+        log(`Failed to add to Excel: ${e.message}`, 'error');
+    }
+
+    // Write Excel file
+    try {
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.json_to_sheet(excelRows);
+        XLSX.utils.book_append_sheet(wb, ws, 'Data');
+        await XLSX.writeFile(wb, EXCEL_FILE);
+    } catch (e) {
+        log(`Failed to write Excel file: ${e.message}`, 'error');
     }
 
     // Google Sheets Append
     const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
-    const SHEET_NAME = process.env.SHEET_NAME || 'גיליון1';
+    const SHEET_NAME = process.env.SHEET_NAME || 'Sheet1';
 
     if (SPREADSHEET_ID && SPREADSHEET_ID.length > 20) {
         try {
@@ -123,27 +141,18 @@ export async function appendSheetsRow({ url, sender_name, post_date, group_name,
                 sheetName: SHEET_NAME,
                 url,
                 senderName: sender_name,
-                postDate: post_date,
                 groupName: group_name,
+                postDate: post_date,
                 summary,
-                validation,
                 likes: likes || 0,
-                comments: comments || 0
+                comments: comments || 0,
+                validation
             });
             log('Synced to Google Sheets', 'success');
         } catch (e) {
             log(`Google Sheets sync failed: ${e.message}`, 'error');
         }
     }
-}
-
-function csvEscape(s = "") {
-    if (!s) return "";
-    s = String(s).replace(/"/g, '""');
-    if (s.includes(",") || s.includes("\n") || s.includes('"')) {
-        return `"${s}"`;
-    }
-    return s;
 }
 
 export function formatDate(dateInput) {
