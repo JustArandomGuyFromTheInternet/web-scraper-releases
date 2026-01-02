@@ -1,0 +1,46 @@
+appId: com.webscraper.app
+productName: Web Scraper
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - main.js
+  - renderer.js
+  - preload.js
+  - index.html
+  - styles.css
+  - "*.mjs"
+  - "ICON-modified.png"
+  - src
+  - visual_engine
+  - node_modules
+
+asarUnpack:
+  - "node_modules/**/*"
+  - "src/**/*"
+  - "visual_engine/**/*"
+
+extraResources:
+  - from: oauth_credentials.json
+    to: oauth_credentials.json
+    filter: ["**/*"]
+
+win:
+  target:
+    - nsis
+  icon: ICON-modified.png
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false
+
+publish:
+  provider: github
+  owner: JustArandomGuyFromTheInternet
+  repo: Web-Scraper

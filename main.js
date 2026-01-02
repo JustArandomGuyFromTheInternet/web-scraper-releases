@@ -10,13 +10,26 @@ require('dotenv').config();
 
 // Helper function to resolve module paths
 function getModulePath(moduleName) {
-  const possiblePaths = [
+  let possiblePaths = [
     path.join(__dirname, moduleName),
-    path.join(app.getAppPath(), moduleName),
-    path.join(app.getAppPath().replace('app.asar', 'app.asar.unpacked'), moduleName)
   ];
+
+  // When app is packaged, ASAR unpacking puts files in app.asar.unpacked
+  if (app.isPackaged) {
+    const appPath = app.getAppPath();
+    // If running from app.asar, also check app.asar.unpacked
+    if (appPath.includes('app.asar')) {
+      const unpackedPath = appPath.replace(/app\.asar.*/, 'app.asar.unpacked');
+      possiblePaths.push(path.join(unpackedPath, moduleName));
+    }
+    // Also check in resources for backwards compatibility
+    possiblePaths.push(path.join(process.resourcesPath, moduleName));
+  }
   
+  // Log all paths being checked
+  console.log(`[Debug] Checking for module: ${moduleName}`);
   for (const tryPath of possiblePaths) {
+    console.log(`[Debug]   - ${tryPath}`);
     if (fsSync.existsSync(tryPath)) {
       console.log(`[Path] Found: ${tryPath}`);
       return tryPath;
@@ -268,9 +281,18 @@ ipcMain.handle('run-scrape', async (event, payload) => {
 
     // Use the new scrape controller
     let scriptPath;
+    let unpackedPath;
     try {
       scriptPath = getModulePath('src/scrape_controller.mjs');
       console.log(`[SUCCESS] Found scrape_controller.mjs at: ${scriptPath}`);
+      
+      // Determine unpacked path for child process
+      if (app.isPackaged) {
+        const appPath = app.getAppPath();
+        if (appPath.includes('app.asar')) {
+          unpackedPath = appPath.replace(/app\.asar.*/, 'app.asar.unpacked');
+        }
+      }
     } catch (error) {
       throw new Error(`Failed to locate scrape_controller.mjs: ${error.message}`);
     }
@@ -303,6 +325,21 @@ ipcMain.handle('run-scrape', async (event, payload) => {
 
     // Build environment for child process so it can read SPREADSHEET_ID / SHEET_NAME
     const envVars = Object.assign({}, process.env);
+
+    // CRITICAL: Set NODE_PATH to find node_modules
+    // This is essential for ES module imports when running from unpacked directory
+    const nodeModulesPaths = [
+      path.join(__dirname, 'node_modules'),
+      path.join(app.getAppPath(), 'node_modules'),
+    ];
+    
+    if (app.isPackaged && unpackedPath) {
+      nodeModulesPaths.push(path.join(unpackedPath, 'node_modules'));
+      nodeModulesPaths.push(path.join(unpackedPath, '..', 'node_modules'));
+    }
+    
+    envVars.NODE_PATH = nodeModulesPaths.join(path.delimiter);
+    console.log(`[INFO] NODE_PATH set to: ${envVars.NODE_PATH.substring(0, 100)}...`);
 
     // Pass explicit paths to child process to avoid process.cwd() issues
     envVars.LINKS_FILE = linksPath;
@@ -374,9 +411,30 @@ ipcMain.handle('run-scrape', async (event, payload) => {
     envVars.VISUAL_MODE = (payload.visualMode !== false) ? 'true' : 'false';
     console.log(`[INFO] Setting VISUAL_MODE=${envVars.VISUAL_MODE}`);
 
-    scrapingProcess = spawn('node', [scriptPath], {
+    // Determine the working directory for the spawned process
+    // When packaged, we need to ensure the process can find relative imports
+    let cwd = __dirname;
+    let finalScriptPath = scriptPath;
+    
+    if (app.isPackaged && unpackedPath) {
+      // Set cwd to the resources directory (parent of app.asar.unpacked)
+      // This gives access to node_modules which is at the same level as app.asar.unpacked
+      cwd = path.dirname(unpackedPath);
+      // Use relative path from unpacked directory
+      finalScriptPath = path.join(unpackedPath, 'src', 'scrape_controller.mjs');
+    }
+
+    console.log(`[INFO] Spawning scrape process with:`);
+    console.log(`  - Script: ${finalScriptPath}`);
+    console.log(`  - CWD: ${cwd}`);
+    console.log(`  - App.isPackaged: ${app.isPackaged}`);
+    console.log(`  - File exists: ${fsSync.existsSync(finalScriptPath)}`);
+
+    scrapingProcess = spawn('node', [finalScriptPath], {
       env: envVars,
-      stdio: ['pipe', 'pipe', 'pipe']
+      stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: cwd,
+      windowsHide: true
     });
 
     scrapingProcess.stdout.on('data', (data) => {

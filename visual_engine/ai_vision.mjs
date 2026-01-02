@@ -2,34 +2,24 @@ import { GoogleGenAI } from "@google/genai";
 import fs from 'fs/promises';
 import dotenv from 'dotenv';
 
-// Load .env file, but don't override env vars already set (override: false)
-// This way, env vars from settings (via main.js) take priority
+// Load .env file, but don't override env vars already set
 dotenv.config({ override: false });
 
-// Get API key dynamically (so settings changes take effect)
+// Get API key dynamically
 function getClient() {
     const apiKey = process.env.GEMINI_API_KEY;
-    
     if (!apiKey) {
-        console.error('[ERR] GEMINI_API_KEY not found in environment variables!');
-        console.error('[INFO] Please set it in Settings or .env file');
+        console.error('[ERR] GEMINI_API_KEY not found!');
         return null;
     }
-    
-    const keyPreview = apiKey.substring(0, 15);
-    console.log(`[OK] Using API key: ${keyPreview}...`);
-    
+    console.log(`[OK] Using API key: ${apiKey.substring(0, 15)}...`);
     return new GoogleGenAI({ apiKey });
 }
 
-/**
- * Call Gemini API with automatic retry on quota exceeded (429 errors)
- * Uses exponential backoff: 16s, 32s, 64s between retries
- * Returns null on final failure to enable fallback to Puppeteer stats
- */
+// Retry with exponential backoff for quota errors
 async function callGeminiWithRetry(client, prompt, maxRetries = 3) {
-    const delays = [16000, 32000, 64000]; // 16s, 32s, 64s
-    
+    const delays = [16000, 32000, 64000];
+
     for (let attempt = 0; attempt < maxRetries; attempt++) {
         try {
             console.log(`[Gemini] Attempt ${attempt + 1}/${maxRetries}`);
@@ -39,24 +29,17 @@ async function callGeminiWithRetry(client, prompt, maxRetries = 3) {
             });
             console.log('[OK] Gemini call succeeded');
             return response;
-            
         } catch (error) {
             const is429 = error.status === 429 || error.message?.includes('429') || error.message?.includes('quota');
-            
             if (is429 && attempt < maxRetries - 1) {
-                const delayMs = delays[attempt];
-                console.warn(`[WARN] Quota exceeded - waiting ${delayMs/1000}s before retry...`);
-                await new Promise(resolve => setTimeout(resolve, delayMs));
-                continue; // Try again
+                console.warn(`[WARN] Quota exceeded - waiting ${delays[attempt] / 1000}s...`);
+                await new Promise(r => setTimeout(r, delays[attempt]));
+                continue;
             }
-            
-            // Quota exceeded after all retries - return null to trigger fallback
             if (is429) {
-                console.warn(`[WARN] Gemini quota exhausted after ${maxRetries} retries. Using Puppeteer stats only.`);
-                return null;  // Signal to use fallback
+                console.warn('[WARN] Gemini quota exhausted');
+                return null;
             }
-            
-            // Non-quota error - throw it
             throw error;
         }
     }
@@ -64,153 +47,85 @@ async function callGeminiWithRetry(client, prompt, maxRetries = 3) {
 
 /**
  * Analyzes a social media post screenshot using Gemini Vision.
- * @param {string} imagePath - Path to the image file.
- * @param {Object} puppeteerStats - Stats extracted by Puppeteer {likes, comments, shares}
- * @returns {Promise<Object>} - Extracted data including validation results.
  */
 export async function analyzePostImage(imagePath, puppeteerStats = null) {
     try {
         const client = getClient();
         if (!client) {
-            throw new Error('[ERR] Gemini API client not initialized. Please set GEMINI_API_KEY in Settings.');
+            throw new Error('[ERR] Gemini API not initialized. Set GEMINI_API_KEY.');
         }
 
-        console.log(`👁️ Analyzing image with AI: ${imagePath}`);
-        if (puppeteerStats) {
-            console.log(`📊 Puppeteer stats to validate: ${JSON.stringify(puppeteerStats)}`);
-        }
+        console.log(`👁️ Analyzing: ${imagePath}`);
 
-        // Read image file
         const imageBuffer = await fs.readFile(imagePath);
         const imageBase64 = imageBuffer.toString('base64');
-
-        // Build validation instructions if stats provided
-        let validationInstructions = '';
-        if (puppeteerStats) {
-            validationInstructions = `
-
-6. Validation (IMPORTANT):
-   Puppeteer extracted these stats from the page:
-   - Likes: ${puppeteerStats.likes || 0}
-   - Comments: ${puppeteerStats.comments || 0}
-   
-   For EACH stat, validate what you SEE in the screenshot:
-   - If the number MATCHES what you see → "✓"
-   - If the number is DIFFERENT from what you see → "✗"
-   - If you DON'T see this stat in the screenshot at all → "⚠️"
-   
-   Return validation as a string like: "Likes: ✓, Comments: ⚠️"
-`;
-        }
-
-        // Prepare the prompt with image 
         const currentTime = new Date().toLocaleString('en-US');
-        const prompt = [
-            {
-                text: `
-Analyze this screenshot of a social media post (Facebook/Instagram/TikTok).
-Extract the following information with HIGH PRECISION:
 
-1. **Sender Name** (EXACT as shown):
-   - Extract EXACTLY as shown in the screenshot
-   - If in Hebrew, keep Hebrew (e.g., "משה כהן")
-   - If in English, keep English (e.g., "Moshe Cohen")
-   - DO NOT translate or transliterate
-   - This is the PERSON who posted, not a group name
-   - If you see "User > Group", the SENDER is "User" (before ">")
+        // Build prompt
+        const statsSection = puppeteerStats ? `
+6. **Stats** - Extract likes/comments as NUMBERS.
+7. **Validation** - Puppeteer found: Likes=${puppeteerStats.likes || 0}, Comments=${puppeteerStats.comments || 0}
+   Return "OK" if match, or "L:X C:Y" with your numbers.` : `
+6. **Stats** - Extract likes/comments as NUMBERS.`;
 
-2. **Group/Page Name** (EXACT as shown):
-   - **CRITICAL**: This is the name of the GROUP or FACEBOOK PAGE/BUSINESS where the post appears
-   - Extract EXACTLY as shown
-   - If in Hebrew, keep Hebrew (e.g., "קבוצת מכירות", "ARDEL")
-   - If in English, keep English (e.g., "Sales Group")
-   - DO NOT translate
-   - Common patterns:
-     * "Sender Name > Group Name" (Post shared to group) → Group Name is after ">"
-     * "Sender Name shared in Group Name" → Group Name is after "in"
-     * "Sender Name shared to Group" → Group Name is after "to"
-     * **NEW RULE**: If the name appears *immediately below* the small text that indicates the sender (e.g., "ARDEL" below the share line) → This is the Page/Group name
-   - If NO group/page context is visible, return **null**
+        const prompt = [{
+            text: `Analyze this social media post screenshot. Extract:
 
-3. **Post Date & Time** (CRITICAL FORMAT):
-   - Extract date AND time if visible
-   - **PRIORITIZE** explicit dates (e.g., "November 3 at 5:47 AM") and convert them to DD/MM/YY HH:MM format
-   - Return in format: DD/MM/YY HH:MM
-   - Examples: "25/11/24 14:30", "20/10/24 09:15"
-   - If only date visible: "25/11/24 00:00"
-   - If relative time ("2h ago", "5m", "2 hours ago"):
-     * Current time is: ${currentTime}
-     * Convert to actual DD/MM/YY HH:MM based on current time
-   - If you see "Yesterday" or similar: calculate yesterday's date
+1. **sender_name** - The person who posted (exact name)
+2. **group_name** - The group/page name if visible, or null
+3. **post_date** - Format: DD/MM/YY HH:MM (current: ${currentTime})
+4. **content** - Full text content
+5. **summary** - 1-2 sentences IN HEBREW
+${statsSection}
 
-4. **Content** (The full text content of the post):
-   - Extract ALL visible text from the post
-   - Include any text overlays on images/videos
-   - Preserve line breaks if visible
+**ENCODING RULES (CRITICAL):**
+- Use actual UTF-8 Hebrew characters like: "חתולים ונהנים"
+- DO NOT use Unicode escapes like: "\\u05d7\\u05ea\\u05d5\\u05dc\\u05d9\\u05dd"
+- DO NOT escape special characters
+- Return plain text in native encoding
 
-5. **Summary** (MUST be in HEBREW):
-   - MUST be in HEBREW (עברית) - this is critical!
-   - 1-2 sentences maximum
-   - Capture the essence: what is the post about?
-   - If it mentions brands/products, highlight them
-   - If it's a video, describe what happens based on visual context${validationInstructions}
-
-**EXAMPLE of SUCCESSFUL Extraction (to guide the model):**
-  * **If the top text is:** "Free listing all day 24/7 > Sender Name · November 3 at 5:47 AM · 🌍"
-  * **The JSON should be:** { "sender_name": "Sender Name", "group_name": "Free listing all day 24/7", "post_date": "03/11/25 05:47" }
-  
-  * **If the top text is:** "Sender Name shared a post to X Group..."
-  * **The JSON should be:** { "sender_name": "Sender Name", "group_name": "X Group" }
-
-CRITICAL RULES:
-- **Sender vs Group**: Sender is the PERSON who posted. Group is WHERE it was posted.
-- **Group/Page Name Detection**: Look for small gray text at the very top, often with ">" or "shared to/in", OR the **bold/large text of the page/brand name** *just below* the share line (e.g., "ARDEL")
-- **Precision**: Extract EXACT names as shown, don't add or remove words
-- **Null vs Empty**: If group name is NOT visible, return null (not "" or "null" as string)
-
-- **Hebrew Names**: Keep names in their original language - Hebrew stays Hebrew, English stays English${puppeteerStats ? `
-- Validation is REQUIRED - compare what you see vs Puppeteer stats` : ''}
-
-Return the result ONLY as a valid JSON object with these exact keys:
+Return ONLY valid JSON:
 {
-  "sender_name": "string (exact name as shown)",
-  "group_name": "string or null (only if group/page context is visible, otherwise null)",
-  "post_date": "string (DD/MM/YY HH:MM format REQUIRED)",
-  "content": "string (full text)",
-  "summary": "string in Hebrew"${puppeteerStats ? `,
+  "sender_name": "string",
+  "group_name": "string or null",
+  "post_date": "DD/MM/YY HH:MM",
+  "content": "string",
+  "summary": "string in Hebrew",
+  "likes": number,
+  "comments": number${puppeteerStats ? ',\n  "validation": "OK or L:X C:Y"' : ''}
+}`
+        }, {
+            inlineData: { mimeType: 'image/jpeg', data: imageBase64 }
+        }];
 
-  "validation": "string with emojis (e.g., Likes: ✓, Comments: ⚠️)"` : ''}
-}
-`
-            },
-            {
-                inlineData: {
-                    mimeType: 'image/jpeg',
-                    data: imageBase64
-                }
-            }
-        ];
-
-        // Call Gemini WITH RETRY LOGIC for quota exceeded errors
         const response = await callGeminiWithRetry(client, prompt);
 
-        // Fallback: If quota exhausted, use Puppeteer stats only
+        // Fallback if quota exhausted
         if (!response) {
-            console.warn('[FALLBACK] Using Puppeteer stats only (Gemini quota exhausted)');
             return {
                 sender_name: puppeteerStats?.sender || 'Unknown',
                 group_name: puppeteerStats?.groupName || '',
-                post_date: puppeteerStats?.postDate || 'Unknown',
-                content: '[AI Analysis Skipped - Quota Exhausted]',
-                summary: '[קוטה של Gemini נגמרה - נתונים מ-Puppeteer בלבד]',
-                validation: puppeteerStats ? `Likes: ${puppeteerStats.likes || 0}, Comments: ${puppeteerStats.comments || 0}, Shares: ${puppeteerStats.shares || 0}` : ''
+                post_date: puppeteerStats?.postDate || '',
+                content: '[AI Skipped]',
+                summary: '[ניתוח AI לא זמין]',
+                likes: puppeteerStats?.likes || 0,
+                comments: puppeteerStats?.comments || 0,
+                validation: 'Quota Exhausted'
             };
         }
 
-        const text = response.text;
+        let jsonStr = response.text.trim();
 
-        // Clean up code blocks if present
-        let jsonStr = text.trim();
+        // DEBUG
+        console.log('=== RAW GEMINI ===');
+        console.log(jsonStr.substring(0, 500));
+        console.log('==================');
+
+        // Pre-process to fix common Gemini issues
+        jsonStr = jsonStr
+            .replace(/^\uFEFF/, '')           // Remove BOM
+            .replace(/\/\/.*/g, '')           // Remove comments
+            .replace(/\r\n/g, '\n');          // Fix line endings
 
         // Remove markdown code blocks
         if (jsonStr.includes('```')) {
@@ -219,12 +134,96 @@ Return the result ONLY as a valid JSON object with these exact keys:
 
         let data;
         try {
+            // First attempt: Direct parse
             data = JSON.parse(jsonStr);
+            console.log('✅ JSON parsed successfully (direct)');
+
         } catch (parseError) {
-            console.error('❌ Failed to parse AI response as JSON:', parseError);
-            console.error('Raw response:', jsonStr.substring(0, 200) + '...');
-            throw new Error('AI returned invalid JSON. Please try again or check API key.');
+            console.warn('⚠️ Direct parse failed, trying fixes...');
+
+            try {
+                // Second attempt: Fix double-escaped backslashes
+                const fixedJson = jsonStr.replace(/\\\\u([0-9a-fA-F]{4})/g, '\\u$1');
+                data = JSON.parse(fixedJson);
+                console.log('✅ JSON parsed after fixing double-escapes');
+
+            } catch (secondError) {
+                // Last resort: Extract JSON with regex
+                const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                    try {
+                        data = JSON.parse(jsonMatch[0]);
+                        console.log('✅ JSON extracted via regex');
+                    } catch (regexError) {
+                        console.error('❌ All parse attempts failed');
+                        throw new Error(`Invalid JSON: ${jsonStr.substring(0, 200)}`);
+                    }
+                } else {
+                    throw new Error(`No JSON found: ${jsonStr.substring(0, 200)}`);
+                }
+            }
         }
+
+        // ENHANCED: Decode Unicode in ALL string values
+        const decodeAllUnicode = (obj) => {
+            if (typeof obj === 'string') {
+                let decoded = obj;
+
+                // Handle \uXXXX sequences
+                decoded = decoded.replace(/\\u([0-9a-fA-F]{4})/g, (match, hex) => {
+                    return String.fromCharCode(parseInt(hex, 16));
+                });
+
+                // Handle \\uXXXX sequences
+                decoded = decoded.replace(/\\\\u([0-9a-fA-F]{4})/g, (match, hex) => {
+                    return String.fromCharCode(parseInt(hex, 16));
+                });
+
+                return decoded;
+            }
+
+            if (Array.isArray(obj)) {
+                return obj.map(decodeAllUnicode);
+            }
+
+            if (obj && typeof obj === 'object') {
+                const result = {};
+                for (const [key, value] of Object.entries(obj)) {
+                    result[key] = decodeAllUnicode(value);
+                }
+                return result;
+            }
+
+            return obj;
+        };
+
+        // Apply decoding
+        data = decodeAllUnicode(data);
+
+        // FINAL SAFETY: Force decode if still encoded
+        const forceDecodeIfNeeded = (str) => {
+            if (!str || typeof str !== 'string') return str;
+            if (str.includes('\\u')) {
+                try {
+                    return eval(`"${str.replace(/"/g, '\\"')}"`);
+                } catch {
+                    return str;
+                }
+            }
+            return str;
+        };
+
+        data.sender_name = forceDecodeIfNeeded(data.sender_name);
+        data.group_name = forceDecodeIfNeeded(data.group_name);
+        data.summary = forceDecodeIfNeeded(data.summary);
+        data.content = forceDecodeIfNeeded(data.content);
+
+        // DEBUG: Log decoded values
+        console.log('=== DECODED VALUES ===');
+        console.log('sender_name:', data.sender_name);
+        console.log('group_name:', data.group_name);
+        console.log('summary:', data.summary?.substring(0, 50));
+        console.log('======================');
 
         console.log('✅ AI Analysis complete');
         return data;

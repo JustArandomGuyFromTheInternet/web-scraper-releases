@@ -221,7 +221,13 @@ export async function main() {
                     const extractedDate = aiData.post_date || statsMetadata.postDate || formatDate(date);
                     const finalDate = extractedDate ? formatDate(extractedDate) : formatDate(date);
 
-                    // Prioritize AI shares if available
+                    // Prioritize AI stats, fallback to Puppeteer
+                    const finalLikes = (aiData.likes !== undefined && aiData.likes !== null && aiData.likes > 0)
+                        ? aiData.likes
+                        : (statsMetadata.likes || 0);
+                    const finalComments = (aiData.comments !== undefined && aiData.comments !== null && aiData.comments > 0)
+                        ? aiData.comments
+                        : (statsMetadata.comments || 0);
                     const finalShares = aiData.shares !== undefined && aiData.shares !== null
                         ? aiData.shares
                         : (statsMetadata.shares || 0);
@@ -234,7 +240,7 @@ export async function main() {
                         summary: aiData.summary || "Reel"
                     };
 
-                    await appendSheetsRow({ url, ...payload, likes: statsMetadata.likes || 0, comments: statsMetadata.comments || 0, shares: finalShares, validation: aiData.validation || "" });
+                    await appendSheetsRow({ url, ...payload, likes: finalLikes, comments: finalComments, shares: finalShares, validation: aiData.validation || "✓" });
                     await appendJsonl({ ts, name, date, url, ok: true, ai: payload, metadata: statsMetadata, reel: true, screenshot: optimizedPath });
                     succeeded.push({ name, date, url });
                 } catch (e) {
@@ -310,6 +316,10 @@ export async function main() {
                     try {
                         aiData = await analyzePostImage(optimizedPath, statsMetadata);
                         log('AI analysis completed', 'success');
+                        console.log('--- DEBUG ENCODING ---');
+                        console.log('AI Group Name:', aiData.group_name);
+                        console.log('Puppeteer Group Name:', statsMetadata.groupName);
+                        console.log('----------------------');
                     } catch (err) {
                         log(`[WARN] AI analysis failed: ${err.message}`, 'warning');
                         log('[INFO] Continuing with Puppeteer data only (no AI validation)', 'info');
@@ -325,7 +335,13 @@ export async function main() {
                         };
                     }
 
-                    // Prioritize AI shares if available, otherwise use Puppeteer
+                    // Prioritize AI stats, fallback to Puppeteer
+                    const finalLikes = (aiData.likes !== undefined && aiData.likes !== null && aiData.likes > 0)
+                        ? aiData.likes
+                        : (statsMetadata.likes || 0);
+                    const finalComments = (aiData.comments !== undefined && aiData.comments !== null && aiData.comments > 0)
+                        ? aiData.comments
+                        : (statsMetadata.comments || 0);
                     const finalShares = aiData.shares !== undefined && aiData.shares !== null
                         ? aiData.shares
                         : (statsMetadata.shares || 0);
@@ -345,10 +361,10 @@ export async function main() {
                     await appendSheetsRow({
                         url,
                         ...payload,
-                        likes: statsMetadata.likes || 0,
-                        comments: statsMetadata.comments || 0,
+                        likes: finalLikes,
+                        comments: finalComments,
                         shares: finalShares,
-                        validation: aiData.validation ? `${aiData.validation}` : "[No AI validation - quota exceeded]"
+                        validation: aiData.validation || (aiData.ai_error ? `[AI Error: ${aiData.ai_error}]` : "✓")
                     });
 
                     // Save OPTIMIZED path to logs, so repair tool uses the small file
@@ -371,7 +387,7 @@ export async function main() {
                 failed.push({ name, date, url, error: error.message });
             } finally {
                 if (page) await page.close();
-                
+
                 // Rate limiting: Add delay between posts in visual mode to avoid Gemini quota issues
                 if (IS_VISUAL_MODE && (succeeded.length + failed.length) < links.length) {
                     const delaySeconds = 1; // 1 second between posts (reduced for speed)

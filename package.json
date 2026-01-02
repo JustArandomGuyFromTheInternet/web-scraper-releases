@@ -44,16 +44,29 @@
     "asarUnpack": [
       "src/**/*",
       "visual_engine/**/*",
-      "*.mjs"
+      "*.mjs",
+      "preload.js",
+      "credentials.json",
+      "oauth_credentials.json",
+      "node_modules/**/*"
     ],
     "files": [
-      "**/*",
+      "main.js",
+      "renderer.js",
+      "preload.js",
+      "index.html",
+      "styles.css",
+      "*.mjs",
+      "src/**/*",
+      "visual_engine/**/*",
+      "node_modules/**/*",
       "!**/*.md",
       "!chrome-data/**",
       "!chrome-profile/**",
       "!out_new/**",
       "!dist/**",
-      "!visual_engine/screen_shots/**"
+      "!visual_engine/screen_shots/**",
+      "!node_modules/.bin/**"
     ],
     "extraResources": [
       {

@@ -92,7 +92,9 @@ export async function ensureOutFiles() {
 
 export async function appendJsonl(rec) {
     try {
-        await fs.appendFile(JSONL_FILE, JSON.stringify(rec) + '\n');
+        // Use custom stringify to preserve Hebrew characters (don't escape Unicode)
+        const jsonStr = JSON.stringify(rec, null, 0);
+        await fs.appendFile(JSONL_FILE, jsonStr + '\n', { encoding: 'utf8' });
     } catch (e) {
         log(`Failed to append to JSONL: ${e.message}`, 'error');
     }
