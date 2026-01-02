@@ -26,6 +26,8 @@ extraResources:
   - from: oauth_credentials.json
     to: oauth_credentials.json
     filter: ["**/*"]
+  - from: ICON-modified.png
+    to: ICON-modified.png
 
 win:
   target:

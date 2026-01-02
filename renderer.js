@@ -13,7 +13,7 @@ const app = {
         const timestamp = new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         const log = document.createElement("div");
         log.className = `log-entry log-${type}`;
-        
+
         // Friendly message formatting
         let displayMessage = message;
         if (type === 'success') {
@@ -25,7 +25,7 @@ const app = {
         } else if (type === 'info') {
             displayMessage = `ℹ️  ${message}`;
         }
-        
+
         log.innerHTML = `<span class="timestamp">${timestamp}</span> ${displayMessage}`;
         logViewer.appendChild(log);
         logViewer.scrollTop = logViewer.scrollHeight;
@@ -114,7 +114,7 @@ const app = {
             const isSheetsMode = sheetsTab?.classList.contains('active');
 
             const existingFile = document.getElementById("existingFile")?.value;
-            
+
             const payload = {
                 links: this.state.links,
                 savePath: document.getElementById("savePath")?.value || "./out_new",
@@ -820,7 +820,137 @@ const app = {
         this.setupEventListeners();
         this.addLog("info", "System ready");
 
+        // Check for first run - show API key setup if not configured
+        this.checkFirstRun();
+
         console.log('[OK] App initialized');
+    },
+
+    checkFirstRun: async function () {
+        try {
+            if (!window.electronAPI || !window.electronAPI.getSettings) return;
+
+            const settings = await window.electronAPI.getSettings();
+
+            // If no API key is set, show the first run modal
+            if (!settings.apiKey) {
+                console.log('[INFO] First run detected - showing API setup');
+                this.showFirstRunSetup();
+            }
+        } catch (error) {
+            console.error('Error checking first run:', error);
+        }
+    },
+
+    showFirstRunSetup: function () {
+        // Create modal overlay
+        const overlay = document.createElement('div');
+        overlay.id = 'firstRunOverlay';
+        overlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        `;
+
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border-radius: 16px;
+            padding: 32px;
+            max-width: 450px;
+            width: 90%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: white;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        `;
+
+        modal.innerHTML = `
+            <div style="text-align: center; margin-bottom: 24px;">
+                <div style="font-size: 48px; margin-bottom: 16px;">🚀</div>
+                <h2 style="margin: 0; font-size: 24px; font-weight: 600;">Welcome to Web Scraper!</h2>
+                <p style="color: #888; margin-top: 8px;">Let's set up your Gemini API key</p>
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 8px; font-weight: 500;">Gemini API Key</label>
+                <input type="password" id="firstRunApiKey" placeholder="AIza..." style="
+                    width: 100%;
+                    padding: 12px 16px;
+                    border: 2px solid rgba(255,255,255,0.1);
+                    border-radius: 8px;
+                    background: rgba(255,255,255,0.05);
+                    color: white;
+                    font-size: 14px;
+                    box-sizing: border-box;
+                    outline: none;
+                    transition: border-color 0.2s;
+                " onfocus="this.style.borderColor='#4f46e5'" onblur="this.style.borderColor='rgba(255,255,255,0.1)'">
+            </div>
+            
+            <p style="color: #666; font-size: 12px; margin-bottom: 20px;">
+                Get your API key from <a href="#" onclick="require('electron').shell.openExternal('https://aistudio.google.com/apikey'); return false;" style="color: #4f46e5;">Google AI Studio</a>
+            </p>
+            
+            <div style="display: flex; gap: 12px;">
+                <button id="firstRunSkip" style="
+                    flex: 1;
+                    padding: 12px;
+                    border: 1px solid rgba(255,255,255,0.2);
+                    border-radius: 8px;
+                    background: transparent;
+                    color: white;
+                    cursor: pointer;
+                    font-size: 14px;
+                ">Skip for now</button>
+                <button id="firstRunSave" style="
+                    flex: 2;
+                    padding: 12px;
+                    border: none;
+                    border-radius: 8px;
+                    background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+                    color: white;
+                    cursor: pointer;
+                    font-size: 14px;
+                    font-weight: 600;
+                ">Save & Continue</button>
+            </div>
+        `;
+
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        // Event listeners
+        document.getElementById('firstRunSkip').onclick = () => {
+            overlay.remove();
+            this.addLog('warning', 'API key not set. Some features may not work.');
+        };
+
+        document.getElementById('firstRunSave').onclick = async () => {
+            const apiKey = document.getElementById('firstRunApiKey').value.trim();
+            if (!apiKey) {
+                alert('Please enter an API key');
+                return;
+            }
+
+            try {
+                await window.electronAPI.saveSettings({ apiKey });
+                overlay.remove();
+                this.addLog('success', '✅ API key saved successfully!');
+            } catch (error) {
+                alert('Failed to save: ' + error.message);
+            }
+        };
+
+        // Focus input
+        setTimeout(() => document.getElementById('firstRunApiKey')?.focus(), 100);
     }
 };
 

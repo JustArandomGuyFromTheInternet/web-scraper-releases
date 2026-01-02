@@ -25,7 +25,7 @@ function getModulePath(moduleName) {
     // Also check in resources for backwards compatibility
     possiblePaths.push(path.join(process.resourcesPath, moduleName));
   }
-  
+
   // Log all paths being checked
   console.log(`[Debug] Checking for module: ${moduleName}`);
   for (const tryPath of possiblePaths) {
@@ -35,7 +35,7 @@ function getModulePath(moduleName) {
       return tryPath;
     }
   }
-  
+
   throw new Error(`Cannot find module: ${moduleName}. Tried: ${possiblePaths.join(', ')}`);
 }
 
@@ -48,7 +48,7 @@ async function getChromePath() {
     path.join(process.env.ProgramFiles, 'Google', 'Chrome', 'Application', 'chrome.exe'),
     path.join(process.env['ProgramFiles(x86)'], 'Google', 'Chrome', 'Application', 'chrome.exe')
   ];
-  
+
   for (const chromePath of possiblePaths) {
     try {
       if (fsSync.existsSync(chromePath)) {
@@ -59,7 +59,7 @@ async function getChromePath() {
       // Skip invalid paths
     }
   }
-  
+
   return null; // Chrome not found
 }
 
@@ -285,7 +285,7 @@ ipcMain.handle('run-scrape', async (event, payload) => {
     try {
       scriptPath = getModulePath('src/scrape_controller.mjs');
       console.log(`[SUCCESS] Found scrape_controller.mjs at: ${scriptPath}`);
-      
+
       // Determine unpacked path for child process
       if (app.isPackaged) {
         const appPath = app.getAppPath();
@@ -332,12 +332,12 @@ ipcMain.handle('run-scrape', async (event, payload) => {
       path.join(__dirname, 'node_modules'),
       path.join(app.getAppPath(), 'node_modules'),
     ];
-    
+
     if (app.isPackaged && unpackedPath) {
       nodeModulesPaths.push(path.join(unpackedPath, 'node_modules'));
       nodeModulesPaths.push(path.join(unpackedPath, '..', 'node_modules'));
     }
-    
+
     envVars.NODE_PATH = nodeModulesPaths.join(path.delimiter);
     console.log(`[INFO] NODE_PATH set to: ${envVars.NODE_PATH.substring(0, 100)}...`);
 
@@ -346,7 +346,7 @@ ipcMain.handle('run-scrape', async (event, payload) => {
     envVars.SCREENSHOTS_DIR = path.join(userDataPath, 'screenshots');
     envVars.OAUTH_CREDENTIALS_PATH = process.env.OAUTH_CREDENTIALS_PATH;
     envVars.GOOGLE_TOKEN_PATH = process.env.GOOGLE_TOKEN_PATH;
-    
+
     // CRITICAL: Explicitly pass API key from settings to child process
     // This ensures settings override .env file in child process
     if (process.env.GEMINI_API_KEY) {
@@ -360,10 +360,10 @@ ipcMain.handle('run-scrape', async (event, payload) => {
 
     // Ensure Chrome profile is in a writable location (userData)
     envVars.USER_DATA_DIR = path.join(userDataPath, 'chrome-profile');
-    
+
     // CRITICAL: Pass Chrome executable path to child process
     // This allows Puppeteer to find system Chrome instead of bundled Chromium
-    const chromeExePath = process.env.CHROME_EXE || 
+    const chromeExePath = process.env.CHROME_EXE ||
       (await getChromePath ? await getChromePath() : null);
     if (chromeExePath) {
       envVars.CHROME_EXE = chromeExePath;
@@ -378,7 +378,7 @@ ipcMain.handle('run-scrape', async (event, payload) => {
       outputDir = path.join(userDataPath, 'output');
     }
     envVars.OUTPUT_DIR = outputDir;
-    
+
     // Handle existing Excel file: if provided, use it; otherwise create new
     if (existingFile) {
       envVars.EXCEL_FILE = existingFile;
@@ -388,7 +388,7 @@ ipcMain.handle('run-scrape', async (event, payload) => {
       const fileName = payload.fileName || 'summaries.xlsx';
       const excelPath = path.join(outputDir, fileName);
       envVars.EXCEL_FILE = excelPath;
-      
+
       // Ensure directory exists
       await fs.mkdir(outputDir, { recursive: true });
     }
@@ -415,7 +415,7 @@ ipcMain.handle('run-scrape', async (event, payload) => {
     // When packaged, we need to ensure the process can find relative imports
     let cwd = __dirname;
     let finalScriptPath = scriptPath;
-    
+
     if (app.isPackaged && unpackedPath) {
       // Set cwd to the resources directory (parent of app.asar.unpacked)
       // This gives access to node_modules which is at the same level as app.asar.unpacked
@@ -732,14 +732,14 @@ ipcMain.handle('logout-sheets', async () => {
 ipcMain.handle('open-browser', async () => {
   try {
     // Use Chrome executable path from config or environment, with fallback to registry
-    const chromeExe = process.env.CHROME_EXE || 
-                      (await getChromePath()) ||
-                      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+    const chromeExe = process.env.CHROME_EXE ||
+      (await getChromePath()) ||
+      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
     const userDataDir = path.join(app.getPath('userData'), 'chrome-profile');
-    
+
     // Make sure the directory exists
     await fs.mkdir(userDataDir, { recursive: true });
-    
+
     // Open Chrome with the user data dir pointing to Facebook
     // User will login here and cookies will be saved for scraping
     spawn(chromeExe, [
@@ -749,7 +749,7 @@ ipcMain.handle('open-browser', async () => {
       'https://www.instagram.com',
       '--force-device-scale-factor=0.85'
     ], { detached: true });
-    
+
     console.log('[OK] Chrome opened with Facebook/Instagram - please login');
     return { success: true, message: 'Chrome opened - please login to Facebook and Instagram' };
   } catch (error) {
@@ -779,7 +779,11 @@ function createWindow() {
       contextIsolation: true,
       preload: getModulePath('preload.js'),
     },
-    icon: path.join(__dirname, 'ICON-modified.png'),
+    // Try to find icon in multiple locations using our helper
+    icon: (function () {
+      try { return getModulePath('ICON-modified.png'); }
+      catch { return path.join(__dirname, 'ICON-modified.png'); }
+    })(),
     titleBarStyle: 'default',
   });
 
@@ -924,17 +928,17 @@ function initializeWebSocket() {
 
       ws.on('message', (message) => {
         try {
-        const data = JSON.parse(message.toString());
-        handleWebSocketMessage(data);
-      } catch (error) {
-        console.error('WebSocket message error:', error);
-      }
-    });
+          const data = JSON.parse(message.toString());
+          handleWebSocketMessage(data);
+        } catch (error) {
+          console.error('WebSocket message error:', error);
+        }
+      });
 
-    ws.on('close', () => {
-      console.log('Frontend disconnected');
+      ws.on('close', () => {
+        console.log('Frontend disconnected');
+      });
     });
-  });
 
     webSocketServer.on('error', (error) => {
       if (error.code === 'EADDRINUSE') {
