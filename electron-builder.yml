@@ -21,6 +21,9 @@ asarUnpack:
   - "node_modules/**/*"
   - "src/**/*"
   - "visual_engine/**/*"
+  - "smart_sheets_writer.mjs"
+  - "sheets_oauth.mjs"
+  - "*.mjs"
 
 extraResources:
   - from: oauth_credentials.json

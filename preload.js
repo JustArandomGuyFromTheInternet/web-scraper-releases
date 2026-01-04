@@ -42,6 +42,13 @@ try {
         deleteScreenshots: () => ipcRenderer.invoke('delete-screenshots'),
         openScreenshotsFolder: () => ipcRenderer.invoke('open-screenshots-folder'),
 
+        // UI Helpers
+        getIconPath: () => ipcRenderer.invoke('get-icon-path'),
+
+        // License
+        getLicenseInfo: () => ipcRenderer.invoke('get-license-info'),
+        activateLicense: (key) => ipcRenderer.invoke('activate-license', key),
+
         // האזנה לעדכונים
         onScrapeLog: (callback) => ipcRenderer.on('scrape-log', (_, value) => callback(value)),
         onSyncLog: (callback) => ipcRenderer.on('sync-log', (_, value) => callback(value)),

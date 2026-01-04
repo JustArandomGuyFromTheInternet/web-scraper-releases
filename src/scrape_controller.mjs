@@ -336,10 +336,11 @@ export async function main() {
                     }
 
                     // Prioritize AI stats, fallback to Puppeteer
-                    const finalLikes = (aiData.likes !== undefined && aiData.likes !== null && aiData.likes > 0)
+                    // Allow 0 explicitly if AI captured it
+                    const finalLikes = (aiData.likes !== undefined && aiData.likes !== null)
                         ? aiData.likes
                         : (statsMetadata.likes || 0);
-                    const finalComments = (aiData.comments !== undefined && aiData.comments !== null && aiData.comments > 0)
+                    const finalComments = (aiData.comments !== undefined && aiData.comments !== null)
                         ? aiData.comments
                         : (statsMetadata.comments || 0);
                     const finalShares = aiData.shares !== undefined && aiData.shares !== null
@@ -353,7 +354,9 @@ export async function main() {
                     // Save
                     const payload = {
                         sender_name: aiData.sender_name || name || "Unknown",
-                        group_name: aiData.group_name || statsMetadata.groupName || "",
+                        group_name: (aiData.group_name && aiData.group_name !== 'null' && aiData.group_name.trim() !== '')
+                            ? aiData.group_name
+                            : (statsMetadata.groupName || ""),
                         post_date: finalDate,
                         summary: aiData.summary || aiData.content || "No content (AI analysis skipped)"
                     };

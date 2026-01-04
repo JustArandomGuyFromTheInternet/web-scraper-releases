@@ -61,39 +61,50 @@ export async function analyzePostImage(imagePath, puppeteerStats = null) {
         const imageBase64 = imageBuffer.toString('base64');
         const currentTime = new Date().toLocaleString('en-US');
 
-        // Build prompt
-        const statsSection = puppeteerStats ? `
-6. **Stats** - Extract likes/comments as NUMBERS.
-7. **Validation** - Puppeteer found: Likes=${puppeteerStats.likes || 0}, Comments=${puppeteerStats.comments || 0}
-   Return "OK" if match, or "L:X C:Y" with your numbers.` : `
-6. **Stats** - Extract likes/comments as NUMBERS.`;
+        const validationContext = puppeteerStats ? `
+            9. **Validation Checklist**:
+               - Puppeteer detected: Likes=${puppeteerStats.likes}, Comments=${puppeteerStats.comments}.
+               - Compare with your numbers.
+               - If match/close: "OK".
+               - If mismatch: "AI(L:${'${this.likes}'}, C:${'${this.comments}'}) OR (L:${puppeteerStats.likes}, C:${puppeteerStats.comments})".
+               - Wait, I cannot use template literal here for self-reference.
+               - Instruction: Set "validation" to string "AI(L:X, C:Y) OR (L:${puppeteerStats.likes}, C:${puppeteerStats.comments})" where X,Y are your found numbers.` : '';
 
         const prompt = [{
-            text: `Analyze this social media post screenshot. Extract:
+            text: `Analyze this social media post screenshot with HIGH precision.
+            
+            1. **sender_name**: The person who posted.
+            2. **group_name**: LOOK AT THE TOP HEADER accurately.
+               - Format is often "Sender Name > Group Name".
+               - Extract strictly the GROUP NAME.
+            3. **post_date**: Format as DD/MM/YY HH:MM (Context: current time is ${currentTime}).
+            4. **likes**: LOOK CAREFULLY at the bottom left.
+               - Find the small numbers near the Like icon.
+               - "X and Y others" -> sum them.
+               - If clearly visible "1", return 1.
+            5. **comments**: Number of comments.
+               - CRITICAL: "Comment as..." input box = 0 comments.
+               - Only count if you see "X comments" text or actual comment bubbles.
+               - If no comment count text is visible, return 0.
+            6. **shares**: Number of shares.
+            7. **content**: Full text.
+            8. **summary**: 1-2 sentences in HEBREW.
+            ${validationContext}
 
-1. **sender_name** - The person who posted (exact name)
-2. **group_name** - The group/page name if visible, or null
-3. **post_date** - Format: DD/MM/YY HH:MM (current: ${currentTime})
-4. **content** - Full text content
-5. **summary** - 1-2 sentences IN HEBREW
-${statsSection}
+            **ENCODING RULES**:
+            - Return RAW UTF-8 Hebrew.
 
-**ENCODING RULES (CRITICAL):**
-- Use actual UTF-8 Hebrew characters like: "חתולים ונהנים"
-- DO NOT use Unicode escapes like: "\\u05d7\\u05ea\\u05d5\\u05dc\\u05d9\\u05dd"
-- DO NOT escape special characters
-- Return plain text in native encoding
-
-Return ONLY valid JSON:
-{
-  "sender_name": "string",
-  "group_name": "string or null",
-  "post_date": "DD/MM/YY HH:MM",
-  "content": "string",
-  "summary": "string in Hebrew",
-  "likes": number,
-  "comments": number${puppeteerStats ? ',\n  "validation": "OK or L:X C:Y"' : ''}
-}`
+            Return ONLY valid JSON:
+            {
+              "sender_name": "string",
+              "group_name": "string",
+              "post_date": "string",
+              "likes": number,
+              "comments": number,
+              "shares": number,
+              "content": "string",
+              "summary": "string"${puppeteerStats ? ',\n              "validation": "string"' : ''}
+            }`
         }, {
             inlineData: { mimeType: 'image/jpeg', data: imageBase64 }
         }];

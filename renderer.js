@@ -94,6 +94,18 @@ const app = {
         const visualBtn = document.getElementById('visualBtn');
         const stopBtn = document.getElementById('stopBtn');
 
+        // Check API Key before starting
+        try {
+            const settings = await window.electronAPI.getSettings();
+            if (!settings.apiKey) {
+                this.addLog('warning', '⚠️ Missing API Key! Please configure it first.');
+                this.showFirstRunSetup(); // Re-use the setup modal
+                return;
+            }
+        } catch (e) {
+            console.error('Failed to check API key:', e);
+        }
+
         if (this.state.links.length === 0) {
             alert("Please add some links first");
             return;
@@ -790,6 +802,18 @@ const app = {
         if (window.electronAPI) {
             console.log("[OK] electronAPI is available");
 
+            // Fix Icon Path (Dynamic loading for packaged app)
+            try {
+                window.electronAPI.getIconPath().then(iconPath => {
+                    const iconEl = document.getElementById('appIcon');
+                    if (iconEl && iconPath) {
+                        iconEl.src = iconPath;
+                    }
+                });
+            } catch (e) {
+                console.error('Failed to load icon path:', e);
+            }
+
             // Listen for scraping events
             window.electronAPI.onScrapeLog((data) => {
                 this.addLog(data.type, data.message);
@@ -962,3 +986,62 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 console.log('[OK] renderer.js fully loaded');
+
+// ==========================================
+// LICENSE TIMER LOGIC
+// ==========================================
+
+async function updateLicenseTimer() {
+    try {
+        if (!window.electronAPI || !window.electronAPI.getLicenseInfo) {
+            console.warn('License API not available yet');
+            return;
+        }
+
+        const info = await window.electronAPI.getLicenseInfo();
+        const timer = document.getElementById('license-timer');
+        if (!timer) return;
+
+        timer.style.display = 'block';
+
+        if (!info.valid) {
+            timer.className = 'expired';
+            timer.innerHTML = '⚠️ Trial Expired - <a href="#" onclick="showActivate()">Activate</a>';
+        } else if (info.isPaid) {
+            timer.className = 'pro';
+            timer.innerHTML = '✅ Licensed Pro';
+        } else {
+            timer.className = 'trial';
+            timer.innerHTML = `⏱️ Trial: ${info.daysLeft} days remaining`;
+        }
+    } catch (err) {
+        console.error('Failed to update license info:', err);
+    }
+}
+
+// Expose showActivate globally so onclick works
+window.showActivate = async function () {
+    const key = prompt('Enter License Key:');
+    if (key) {
+        try {
+            const result = await window.electronAPI.activateLicense(key);
+            if (result.success) {
+                alert('License Activated! 🎉');
+                updateLicenseTimer();
+            } else {
+                alert('Invalid key: ' + (result.error || 'Unknown error'));
+            }
+        } catch (e) {
+            alert('Error activating license: ' + e.message);
+        }
+    }
+};
+
+// Start timer logic
+document.addEventListener('DOMContentLoaded', () => {
+    // Give a small delay to ensure IPC is ready
+    setTimeout(() => {
+        updateLicenseTimer();
+        setInterval(updateLicenseTimer, 60 * 60 * 1000); // Update every hour
+    }, 1000);
+});

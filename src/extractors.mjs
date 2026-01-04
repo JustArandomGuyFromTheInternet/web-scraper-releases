@@ -188,6 +188,20 @@ export async function extractFacebookMetadata(page) {
     const data = await page.evaluate(() => {
         let metadata = { senderName: '', postDate: '', groupName: '', likes: 0, comments: 0, shares: 0 };
 
+        // Helper to decode unicode escapes if they appear as literal text
+        const decodeText = (str) => {
+            if (!str) return '';
+            try {
+                // If text looks like unicode escapes (e.g. \u05d4)
+                if (str.includes('\\u')) {
+                    return JSON.parse(`"${str}"`);
+                }
+            } catch (e) {
+                // Ignore parse errors and return original
+            }
+            return str;
+        };
+
         try {
             // ===== STEP 1: EXTRACT FROM JSON SCRIPTS =====
             console.log('=== Searching JSON scripts ===');
@@ -209,7 +223,7 @@ export async function extractFacebookMetadata(page) {
                         for (const pattern of patterns) {
                             const match = content.match(pattern);
                             if (match && match[1]) {
-                                const name = match[1].trim();
+                                const name = decodeText(match[1].trim());
                                 if (name.length > 2 && name.length < 50 &&
                                     !name.includes('Facebook') && !name.includes('See more')) {
                                     metadata.senderName = name;
@@ -231,7 +245,7 @@ export async function extractFacebookMetadata(page) {
                         for (const pattern of patterns) {
                             const match = content.match(pattern);
                             if (match && match[1]) {
-                                const groupName = match[1].trim();
+                                const groupName = decodeText(match[1].trim());
                                 if (groupName.length > 3 && groupName.length < 100 &&
                                     !groupName.includes('Facebook') && !groupName.includes('Join')) {
                                     metadata.groupName = groupName;
