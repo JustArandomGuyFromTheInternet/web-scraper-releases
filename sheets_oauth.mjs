@@ -9,23 +9,26 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Smart path resolution
-const TOKEN_PATH = process.env.GOOGLE_TOKEN_PATH || path.join(__dirname, 'token.json');
-const CREDENTIALS_PATH = process.env.OAUTH_CREDENTIALS_PATH || path.join(__dirname, 'oauth_credentials.json');
+// 🛠️ Dynamic Path Resolution (Environment variables are set by main.js during app-ready)
+function getTokenPath() {
+  return process.env.GOOGLE_TOKEN_PATH || path.join(__dirname, 'token.json');
+}
 
-console.log('[INFO] OAuth paths in sheets_oauth.mjs:');
-console.log('   __dirname:', __dirname);
-console.log('   CREDENTIALS_PATH:', CREDENTIALS_PATH);
-console.log('   TOKEN_PATH:', TOKEN_PATH);
+function getCredentialsPath() {
+  return process.env.OAUTH_CREDENTIALS_PATH || path.join(__dirname, 'oauth_credentials.json');
+}
 
 // Load credentials
 // Load credentials
 async function loadCredentials() {
+  const currentCredsPath = getCredentialsPath();
   const possiblePaths = [
-    CREDENTIALS_PATH, // המיקום הרגיל (userData)
-    path.join(process.resourcesPath || '', 'oauth_credentials.json'), // בresources
-    path.join(__dirname, 'oauth_credentials.json') // בתיקיית הקוד (dev)
+    currentCredsPath,
+    path.join(process.resourcesPath || '', 'oauth_credentials.json'),
+    path.join(__dirname, 'oauth_credentials.json')
   ];
+
+  console.log('[INFO] Attempting to load credentials from paths:', possiblePaths.filter(p => !!p));
 
   for (const credPath of possiblePaths) {
     if (!credPath) continue;
@@ -38,10 +41,7 @@ async function loadCredentials() {
     }
   }
 
-  // None found
-  console.error(`❌ OAuth credentials not found in any of:`);
-  possiblePaths.forEach(p => console.error(`   - ${p}`));
-  throw new Error('OAuth credentials file not found. Please add via Settings.');
+  throw new Error('OAuth credentials file not found. Please ensure oauth_credentials.json exists in your AppData folder.');
 }
 
 // יצירת OAuth2 Client
@@ -59,28 +59,25 @@ async function createOAuth2Client() {
 
 // בדיקה אם יש token שמור
 async function loadSavedToken(oAuth2Client) {
+  const tokenPath = getTokenPath();
   try {
-    const token = await fs.readFile(TOKEN_PATH, 'utf8');
+    const token = await fs.readFile(tokenPath, 'utf8');
     const parsedToken = JSON.parse(token);
     oAuth2Client.setCredentials(parsedToken);
-    console.log('[OK] Loaded saved token from:', TOKEN_PATH);
-    console.log('[INFO] Token expires at:', new Date(parsedToken.expiry_date).toLocaleString());
+    console.log('[OK] Loaded saved token from:', tokenPath);
     return true;
   } catch (error) {
-    console.log('[INFO] No saved token found at:', TOKEN_PATH);
-    console.log('[INFO] Error:', error.message);
+    console.log('[INFO] No saved token found at:', tokenPath);
     return false;
   }
 }
 
 // שמירת token
 async function saveToken(token) {
+  const tokenPath = getTokenPath();
   try {
-    await fs.writeFile(TOKEN_PATH, JSON.stringify(token));
-    console.log('[OK] Token saved to:', TOKEN_PATH);
-    if (token.expiry_date) {
-      console.log('[INFO] Token expires at:', new Date(token.expiry_date).toLocaleString());
-    }
+    await fs.writeFile(tokenPath, JSON.stringify(token));
+    console.log('[OK] Token saved to:', tokenPath);
   } catch (error) {
     console.error('[ERR] Failed to save token:', error.message);
     throw error;
@@ -280,19 +277,21 @@ export async function testConnection(spreadsheetUrl) {
 
 // ניקוי התחברות (logout)
 export async function logout() {
+  const tokenPath = getTokenPath();
   try {
-    await fs.unlink(TOKEN_PATH);
+    await fs.unlink(tokenPath);
     console.log('[OK] Logged out successfully');
     return { success: true };
   } catch {
-    return { success: false, error: 'אין משתמש מחובר' };
+    return { success: false, error: 'User is not logged in' };
   }
 }
 
 // בדיקה אם יש משתמש מחובר
 export async function isAuthenticated() {
+  const tokenPath = getTokenPath();
   try {
-    await fs.access(TOKEN_PATH);
+    await fs.access(tokenPath);
     return true;
   } catch {
     return false;
