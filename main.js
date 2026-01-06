@@ -182,43 +182,6 @@ function createWindow() {
 
 const SETTINGS_PATH = path.join(app.getPath('userData'), 'settings.json');
 
-// OAuth Paths - configure in production
-if (app.isPackaged) {
-  const userDataPath = app.getPath('userData');
-  const OAUTH_CREDENTIALS_PATH = path.join(userDataPath, 'oauth_credentials.json');
-  const GOOGLE_TOKEN_PATH = path.join(userDataPath, 'token.json');
-
-  // 🆕 Auto-copy from resources if missing
-  (async () => {
-    try {
-      // Check if oauth_credentials.json exists in userData
-      await fs.access(OAUTH_CREDENTIALS_PATH);
-      console.log('✅ OAuth credentials already exist in userData');
-    } catch {
-      // Not found - try to copy from resources
-      const resourcesPath = path.join(process.resourcesPath, 'oauth_credentials.json');
-
-      try {
-        await fs.copyFile(resourcesPath, OAUTH_CREDENTIALS_PATH);
-        console.log(`✅ OAuth credentials copied to: ${OAUTH_CREDENTIALS_PATH}`);
-      } catch (copyError) {
-        console.warn('⚠️ Could not copy OAuth credentials:', copyError.message);
-        console.warn('   User will need to provide credentials manually via Settings.');
-      }
-    }
-  })();
-
-  // Set env vars
-  process.env.OAUTH_CREDENTIALS_PATH = OAUTH_CREDENTIALS_PATH;
-  process.env.GOOGLE_TOKEN_PATH = GOOGLE_TOKEN_PATH;
-
-  console.log('🔧 OAuth paths configured (PRODUCTION):');
-  console.log('   OAUTH_CREDENTIALS_PATH:', OAUTH_CREDENTIALS_PATH);
-  console.log('   GOOGLE_TOKEN_PATH:', GOOGLE_TOKEN_PATH);
-} else {
-  console.log('🔧 Development mode: OAuth uses local files');
-}
-
 // Settings handlers
 ipcMain.handle('get-settings', async () => {
   try {
@@ -228,6 +191,8 @@ ipcMain.handle('get-settings', async () => {
     return {};
   }
 });
+
+ipcMain.handle('get-app-version', () => app.getVersion());
 
 ipcMain.handle('save-settings', async (event, settings) => {
   try {
@@ -303,6 +268,16 @@ ipcMain.on('stop-scraping', () => {
   if (scrapingProcess) {
     scrapingProcess.kill();
     scrapingProcess = null;
+  }
+});
+
+// Sync to Sheets Handler
+ipcMain.handle('sync-to-sheets', async (event, config) => {
+  try {
+    const { syncToSheets } = await import('./smart_sheets_writer.mjs');
+    return await syncToSheets(config);
+  } catch (error) {
+    return { success: false, message: error.message };
   }
 });
 
@@ -410,8 +385,24 @@ ipcMain.handle('test-api', () => 'API is working');
 ipcMain.handle('check-api-status', async () => {
   return {
     ipc: true,
-    websocket: !!webSocketServer,
+    websocket: false, // WebSocket server is managed in scrape_controller
     googleSheets: true
+  };
+});
+
+ipcMain.handle('get-diagnostic-info', async () => {
+  return {
+    version: app.getVersion(),
+    isPackaged: app.isPackaged,
+    env: {
+      OAUTH_CREDENTIALS_PATH: process.env.OAUTH_CREDENTIALS_PATH,
+      GOOGLE_TOKEN_PATH: process.env.GOOGLE_TOKEN_PATH
+    },
+    paths: {
+      userData: app.getPath('userData'),
+      resources: process.resourcesPath,
+      executable: app.getPath('exe')
+    }
   };
 });
 
@@ -479,6 +470,9 @@ app.whenReady().then(async () => {
     const targetPath = path.join(userDataPath, 'oauth_credentials.json');
     const sourcePath = path.join(process.resourcesPath, 'oauth_credentials.json');
 
+    log.info(`[OAuth] Target: ${targetPath}`);
+    log.info(`[OAuth] Source exists? ${fsSync.existsSync(sourcePath)}`);
+
     if (!fsSync.existsSync(targetPath) && fsSync.existsSync(sourcePath)) {
       try {
         fsSync.copyFileSync(sourcePath, targetPath);
@@ -490,8 +484,8 @@ app.whenReady().then(async () => {
     process.env.OAUTH_CREDENTIALS_PATH = targetPath;
     process.env.GOOGLE_TOKEN_PATH = path.join(userDataPath, 'token.json');
   } else {
-    process.env.OAUTH_CREDENTIALS_PATH = path.join(userDataPath, 'oauth_credentials.json');
-    process.env.GOOGLE_TOKEN_PATH = path.join(userDataPath, 'token.json');
+    process.env.OAUTH_CREDENTIALS_PATH = path.join(__dirname, 'oauth_credentials.json');
+    process.env.GOOGLE_TOKEN_PATH = path.join(__dirname, 'token.json');
   }
 
   // 3. Start App

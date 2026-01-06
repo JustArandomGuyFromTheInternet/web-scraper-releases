@@ -44,6 +44,8 @@ try {
 
         // UI Helpers
         getIconPath: () => ipcRenderer.invoke('get-icon-path'),
+        getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+        getDiagnosticInfo: () => ipcRenderer.invoke('get-diagnostic-info'),
 
         // License
         getLicenseInfo: () => ipcRenderer.invoke('get-license-info'),

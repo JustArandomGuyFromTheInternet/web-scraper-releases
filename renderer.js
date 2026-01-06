@@ -853,32 +853,27 @@ const app = {
         if (window.electronAPI) {
             console.log("[OK] electronAPI is available");
 
-            // Fix Icon Path (Dynamic loading for packaged app)
-            try {
-                window.electronAPI.getIconPath().then(iconPath => {
-                    const iconEl = document.getElementById('appIcon');
-                    if (iconEl && iconPath) {
-                        iconEl.src = iconPath;
-                    }
-                });
-            } catch (e) {
-                console.error('Failed to load icon path:', e);
-            }
+            // 1. Set dynamic version in UI
+            window.electronAPI.getAppVersion().then(version => {
+                const versionElements = document.querySelectorAll('.update-status');
+                versionElements.forEach(el => { el.innerText = `Version ${version}`; });
+                console.log(`[UI] Version updated to: ${version}`);
+            }).catch(err => console.error('Failed to get app version:', err));
 
-            // Listen for scraping events
-            window.electronAPI.onScrapeLog((data) => {
-                this.addLog(data.type, data.message);
-            });
+            // 2. Fix Icon Path
+            window.electronAPI.getIconPath().then(iconPath => {
+                const iconEl = document.getElementById('appIcon');
+                if (iconEl && iconPath) iconEl.src = iconPath;
+            }).catch(e => console.error('Failed to load icon path:', e));
 
-            window.electronAPI.on('scraping-output', (data) => {
-                this.addLog(data.type, data.message);
-            });
+            // 3. Consolidated Log Listeners
+            const logHandler = (data) => this.addLog(data.type, data.message);
+            window.electronAPI.onScrapeLog(logHandler);
+            window.electronAPI.on('scraping-output', logHandler);
 
             window.electronAPI.on('scraping-complete', (results) => {
                 this.state.isRunning = false;
                 this.addLog('success', `[OK] Scraping completed! ${results.succeeded || 0} succeeded, ${results.failed || 0} failed.`);
-
-                // Re-enable buttons after completion
                 this.resetButtons();
             });
 
@@ -886,19 +881,23 @@ const app = {
                 this.addLog("error", "[ERR] Scraping failed");
                 this.resetButtons();
             });
-        } else {
-            console.error("[ERR] electronAPI is not available!");
-            this.addLog("error", "API not available");
+
+            // 4. Update Status listener
+            window.electronAPI.onUpdateStatus((data) => {
+                const statusDiv = document.getElementById('updateStatus');
+                if (statusDiv) {
+                    statusDiv.innerText = data.message;
+                    if (data.status === 'error' && data.link) {
+                        statusDiv.innerHTML = `${data.message} <a href="${data.link}" style="color: #4F46E5; text-decoration: underline;">לחץ כאן</a>`;
+                    }
+                }
+            });
         }
 
         this.updateFileName();
         this.setupEventListeners();
         this.addLog("info", "System ready");
-
-        // Check for first run - show API key setup if not configured
         this.checkFirstRun();
-
-        console.log('[OK] App initialized');
     },
 
     checkFirstRun: async function () {
@@ -1033,14 +1032,24 @@ const app = {
 // Initialize when DOM is ready
 document.addEventListener("DOMContentLoaded", () => {
     console.log('DOM loaded, initializing app...');
+
+    // Initialize filename
+    const fileNameInput = document.getElementById('fileName');
+    if (fileNameInput) {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+        fileNameInput.value = `summaries_${timestamp}.xlsx`;
+    }
+
     app.initialize();
+
+    // Start license timer logic with a small delay
+    setTimeout(() => {
+        updateLicenseTimer();
+        setInterval(updateLicenseTimer, 60 * 60 * 1000); // Update every hour
+    }, 1000);
 });
 
 console.log('[OK] renderer.js fully loaded');
-
-// ==========================================
-// LICENSE TIMER LOGIC
-// ==========================================
 
 async function updateLicenseTimer() {
     try {
@@ -1087,12 +1096,3 @@ window.showActivate = async function () {
         }
     }
 };
-
-// Start timer logic
-document.addEventListener('DOMContentLoaded', () => {
-    // Give a small delay to ensure IPC is ready
-    setTimeout(() => {
-        updateLicenseTimer();
-        setInterval(updateLicenseTimer, 60 * 60 * 1000); // Update every hour
-    }, 1000);
-});
