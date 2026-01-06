@@ -107,6 +107,42 @@ autoUpdater.on('update-not-available', (info) => {
 
 autoUpdater.on('error', (err) => {
   log.error('Error in auto-updater:', err);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-status', {
+      status: 'error',
+      message: 'בדיקת עדכונים נכשלה. לחץ כאן להורדה ידנית.',
+      link: 'https://github.com/JustArandomGuyFromTheInternet/Web-Scraper/releases/latest'
+    });
+  }
+});
+
+autoUpdater.on('checking-for-update', () => {
+  log.info('Checking for updates...');
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-status', { status: 'checking', message: 'בודק עדכונים...' });
+  }
+});
+
+autoUpdater.on('update-available', (info) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-status', { status: 'available', message: `נמצאה גרסה חדשה! (${info.version}) מוריד...` });
+  }
+});
+
+autoUpdater.on('update-not-available', (info) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-status', { status: 'not-available', message: 'הגרסה שלך מעודכנת.' });
+  }
+});
+
+// IPC Handler for manual check
+ipcMain.handle('check-for-updates', async () => {
+  try {
+    await autoUpdater.checkForUpdates();
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
 });
 
 autoUpdater.on('download-progress', (progressObj) => {

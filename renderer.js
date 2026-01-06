@@ -748,6 +748,57 @@ const app = {
             console.log('[OK] Logout button listener added');
         }
 
+        // Check Update Button
+        const checkUpdateBtn = document.getElementById("checkUpdateBtn");
+        const updateStatus = document.getElementById("updateStatus");
+
+        if (checkUpdateBtn) {
+            checkUpdateBtn.addEventListener("click", async () => {
+                checkUpdateBtn.disabled = true;
+                checkUpdateBtn.textContent = "Checking...";
+                if (updateStatus) updateStatus.innerHTML = '<span class="status-checking">⏳ חיבור לשרת...</span>';
+
+                try {
+                    const result = await window.electronAPI.checkForUpdates();
+                    if (!result.success) {
+                        if (updateStatus) updateStatus.innerHTML = `<span class="status-error">❌ שגיאה: ${result.error}</span>`;
+                        checkUpdateBtn.disabled = false;
+                        checkUpdateBtn.textContent = "Check for Updates";
+                    }
+                } catch (e) {
+                    if (updateStatus) updateStatus.innerHTML = `<span class="status-error">❌ שגיאה: ${e.message}</span>`;
+                    checkUpdateBtn.disabled = false;
+                    checkUpdateBtn.textContent = "Check for Updates";
+                }
+            });
+
+            // Listen for status updates
+            if (window.electronAPI.onUpdateStatus) {
+                window.electronAPI.onUpdateStatus((data) => {
+                    console.log('[Update Status]', data);
+
+                    if (updateStatus) {
+                        let html = '';
+                        if (data.status === 'checking') html = '<span>⏳ בודק עדכונים...</span>';
+                        if (data.status === 'available') html = `<span class="status-success">⬇️ ${data.message}</span>`;
+                        if (data.status === 'not-available') html = '<span class="status-ok">✅ הגרסה מעודכנת</span>';
+                        if (data.status === 'error') {
+                            html = `<span class="status-error">❌ ${data.message}</span>`;
+                            if (data.link) {
+                                html += `<br><a href="#" onclick="require('electron').shell.openExternal('${data.link}')" class="download-link">פתח דף הורדה</a>`;
+                            }
+                        }
+                        updateStatus.innerHTML = html;
+                    }
+
+                    if (data.status === 'not-available' || data.status === 'error') {
+                        checkUpdateBtn.disabled = false;
+                        checkUpdateBtn.textContent = "Check for Updates";
+                    }
+                });
+            }
+        }
+
 
         console.log('[INFO] All event listeners set up');
     },

@@ -23,21 +23,24 @@
         }
 
         #license-timer.trial {
-            background: rgba(255, 193, 7, 0.2);
-            border: 1px solid #ffc107;
-            color: #ffc107;
+            background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
         }
 
         #license-timer.pro {
-            background: rgba(76, 175, 80, 0.2);
-            border: 1px solid #4caf50;
-            color: #4caf50;
+            background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
         }
 
         #license-timer.expired {
-            background: rgba(244, 67, 54, 0.2);
-            border: 1px solid #f44336;
-            color: #f44336;
+            background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
         }
     </style>
 </head>
@@ -57,79 +60,123 @@
             </div>
         </div>
 
-        <!-- Settings Modal -->
+        <!-- Settings Modal (New Design) -->
         <div id="settingsModal" class="modal" style="display: none;">
             <div class="modal-content">
+
+                <!-- Header -->
                 <div class="modal-header">
                     <h2>Settings</h2>
                     <button class="close-btn" id="closeSettingsBtn">&times;</button>
                 </div>
+
+                <!-- Body -->
                 <div class="modal-body">
-                    <div class="input-group">
-                        <label for="apiKeyInput">Gemini API Key</label>
-                        <input type="password" id="apiKeyInput" placeholder="Enter your Gemini API Key">
-                        <div id="apiKeyStatus" class="status-badge status-disconnected" style="margin-top: 5px;">Not
-                            Configured</div>
+
+                    <!-- API Configuration Section -->
+                    <div class="settings-section">
+                        <div class="section-title">API Configuration</div>
+                        <div class="form-group">
+                            <label class="form-label">Google Gemini API Key</label>
+                            <input type="password" class="form-input" id="apiKeyInput"
+                                placeholder="Enter your Gemini API Key">
+                            <div class="form-hint">Required for AI vision analysis. Get your key at ai.google.dev</div>
+                            <div id="apiKeyStatus" class="status-badge status-disconnected" style="margin-top: 8px;">Not
+                                Configured</div>
+                        </div>
                     </div>
 
-                    <div class="divider"></div>
-
-                    <h3>Column Selection</h3>
-                    <div class="checkbox-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                        <label><input type="checkbox" id="colSender" checked> Sender Name</label>
-                        <label><input type="checkbox" id="colGroup" checked> Group Name</label>
-                        <label><input type="checkbox" id="colDate" checked> Post Date</label>
-                        <label><input type="checkbox" id="colContent" checked> Content</label>
-                        <label><input type="checkbox" id="colSummary" checked> Summary</label>
-                        <label><input type="checkbox" id="colLikes" checked> Likes</label>
-                        <label><input type="checkbox" id="colComments" checked> Comments</label>
+                    <!-- Column Selection Section -->
+                    <div class="settings-section">
+                        <div class="section-title">Output Configuration</div>
+                        <p style="font-size: 13px; color: #64748b; margin-bottom: 12px; line-height: 1.4;">
+                            Choose which data fields to extract and save during <strong>future</strong> scraping
+                            sessions. Unchecked items will be skipped to save time.
+                        </p>
+                        <div class="form-group">
+                            <div class="checkbox-group"
+                                style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                                <label class="checkbox-label"><input type="checkbox" id="colSender" checked> Sender
+                                    Name</label>
+                                <label class="checkbox-label"><input type="checkbox" id="colGroup" checked> Group
+                                    Name</label>
+                                <label class="checkbox-label"><input type="checkbox" id="colDate" checked> Post
+                                    Date</label>
+                                <label class="checkbox-label"><input type="checkbox" id="colContent" checked>
+                                    Content</label>
+                                <label class="checkbox-label"><input type="checkbox" id="colSummary" checked>
+                                    Summary</label>
+                                <label class="checkbox-label"><input type="checkbox" id="colLikes" checked>
+                                    Likes</label>
+                                <label class="checkbox-label"><input type="checkbox" id="colComments" checked>
+                                    Comments</label>
+                            </div>
+                        </div>
                     </div>
 
-                    <div class="divider"></div>
+                    <div class="divider" style="height: 1px; background: #e2e8f0; margin: 32px 0;"></div>
 
-                    <h3>Repair Tools (כלי תיקון)</h3>
-                    <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
-                        תיקון נתונים חסרים בטבלה. כל כלי מחפש את המידע לפי סדר עדיפויות אוטומטי.
-                    </p>
+                    <!-- Repair Tools Section -->
+                    <div class="settings-section">
+                        <div class="section-title">Data Repair Tools</div>
+                        <p style="font-size: 13px; color: #64748b; margin-bottom: 12px; line-height: 1.4;">
+                            Fix missing data in your <strong>existing</strong> spreadsheet. These tools scan empty cells
+                            in your sheet and attempt to retrieve the missing information retroactively.
+                        </p>
 
-                    <div class="repair-tools-grid"
-                        style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
-                        <button id="repairGroupsBtn" class="action-btn warning-btn"
-                            style="font-size: 0.9em; padding: 10px;">
-                            <span class="icon">🔧</span> Group Names
-                        </button>
-                        <button id="repairLikesBtn" class="action-btn warning-btn"
-                            style="font-size: 0.9em; padding: 10px;">
-                            <span class="icon">👍</span> Likes
-                        </button>
-                        <button id="repairCommentsBtn" class="action-btn warning-btn"
-                            style="font-size: 0.9em; padding: 10px;">
-                            <span class="icon">💬</span> Comments
-                        </button>
-                        <button id="repairContentBtn" class="action-btn warning-btn"
-                            style="font-size: 0.9em; padding: 10px;">
-                            <span class="icon">📝</span> Content/Summary
-                        </button>
-                        <button id="repairSenderBtn" class="action-btn warning-btn"
-                            style="font-size: 0.9em; padding: 10px;">
-                            <span class="icon">👤</span> Sender Name
-                        </button>
-                        <button id="repairDateBtn" class="action-btn warning-btn"
-                            style="font-size: 0.9em; padding: 10px;">
-                            <span class="icon">📅</span> Post Date
-                        </button>
-                        <button id="repairAllBtn" class="action-btn primary-btn"
-                            style="font-size: 0.9em; padding: 10px; grid-column: 1 / -1;">
-                            <span class="icon">🔄</span> Repair All Missing Data
-                        </button>
+                        <div class="repair-tools-grid"
+                            style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <button id="repairGroupsBtn" class="btn btn-secondary" style="font-size: 0.9em;">
+                                🔧 Group Names
+                            </button>
+                            <button id="repairLikesBtn" class="btn btn-secondary" style="font-size: 0.9em;">
+                                👍 Likes
+                            </button>
+                            <button id="repairCommentsBtn" class="btn btn-secondary" style="font-size: 0.9em;">
+                                💬 Comments
+                            </button>
+                            <button id="repairContentBtn" class="btn btn-secondary" style="font-size: 0.9em;">
+                                📝 Content/Summary
+                            </button>
+                            <button id="repairSenderBtn" class="btn btn-secondary" style="font-size: 0.9em;">
+                                👤 Sender Name
+                            </button>
+                            <button id="repairDateBtn" class="btn btn-secondary" style="font-size: 0.9em;">
+                                📅 Post Date
+                            </button>
+                            <button id="repairAllBtn" class="btn btn-primary"
+                                style="grid-column: 1 / -1; margin-top: 8px;">
+                                🔄 Repair All Missing Data
+                            </button>
+                        </div>
+                        <div id="repairStatus"
+                            style="margin-top: 10px; font-size: 0.9em; color: #666; min-height: 20px;"></div>
                     </div>
 
-                    <div id="repairStatus" style="margin-top: 10px; font-size: 0.9em; color: #666; min-height: 20px;">
+                    <!-- System Updates Section -->
+                    <div class="settings-section">
+                        <div class="section-title">System Updates</div>
+                        <div class="update-info" id="updateInfoWrapper"
+                            style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 6px; margin-bottom: 12px;">
+                            <span class="status-badge up-to-date"
+                                style="background: #dbeafe; color: #1e40af; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600;">Current</span>
+                            <span class="update-status"
+                                style="font-size: 13px; color: #0369a1; font-weight: 500;">Version 1.0.1</span>
+                        </div>
+                        <div class="btn-group">
+                            <button class="btn btn-secondary" id="checkUpdateBtn" style="width: 100%;">
+                                Check for Updates
+                            </button>
+                        </div>
+                        <div id="updateStatus" style="margin-top: 8px; text-align: center; font-size: 13px;"></div>
                     </div>
+
                 </div>
+
+                <!-- Footer -->
                 <div class="modal-footer">
-                    <button class="secondary-btn" id="cancelSettingsBtn">Cancel</button>
-                    <button class="primary-btn" id="saveSettingsBtn">Save</button>
+                    <button class="btn btn-secondary" id="cancelSettingsBtn">Cancel</button>
+                    <button class="btn btn-primary" id="saveSettingsBtn">Save Changes</button>
                 </div>
             </div>
         </div>

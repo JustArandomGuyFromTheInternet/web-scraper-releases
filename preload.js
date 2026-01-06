@@ -53,6 +53,10 @@ try {
         onScrapeLog: (callback) => ipcRenderer.on('scrape-log', (_, value) => callback(value)),
         onSyncLog: (callback) => ipcRenderer.on('sync-log', (_, value) => callback(value)),
 
+        // Updates
+        checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+        onUpdateStatus: (callback) => ipcRenderer.on('update-status', (_, data) => callback(data)),
+
         // Send function for stop scraping
         send: (channel, data) => {
             const validChannels = ['stop-scraping'];
