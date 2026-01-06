@@ -166,6 +166,43 @@ function createWindow() {
 
 const SETTINGS_PATH = path.join(app.getPath('userData'), 'settings.json');
 
+// OAuth Paths - configure in production
+if (app.isPackaged) {
+  const userDataPath = app.getPath('userData');
+  const OAUTH_CREDENTIALS_PATH = path.join(userDataPath, 'oauth_credentials.json');
+  const GOOGLE_TOKEN_PATH = path.join(userDataPath, 'token.json');
+
+  // 🆕 Auto-copy from resources if missing
+  (async () => {
+    try {
+      // Check if oauth_credentials.json exists in userData
+      await fs.access(OAUTH_CREDENTIALS_PATH);
+      console.log('✅ OAuth credentials already exist in userData');
+    } catch {
+      // Not found - try to copy from resources
+      const resourcesPath = path.join(process.resourcesPath, 'oauth_credentials.json');
+
+      try {
+        await fs.copyFile(resourcesPath, OAUTH_CREDENTIALS_PATH);
+        console.log(`✅ OAuth credentials copied to: ${OAUTH_CREDENTIALS_PATH}`);
+      } catch (copyError) {
+        console.warn('⚠️ Could not copy OAuth credentials:', copyError.message);
+        console.warn('   User will need to provide credentials manually via Settings.');
+      }
+    }
+  })();
+
+  // Set env vars
+  process.env.OAUTH_CREDENTIALS_PATH = OAUTH_CREDENTIALS_PATH;
+  process.env.GOOGLE_TOKEN_PATH = GOOGLE_TOKEN_PATH;
+
+  console.log('🔧 OAuth paths configured (PRODUCTION):');
+  console.log('   OAUTH_CREDENTIALS_PATH:', OAUTH_CREDENTIALS_PATH);
+  console.log('   GOOGLE_TOKEN_PATH:', GOOGLE_TOKEN_PATH);
+} else {
+  console.log('🔧 Development mode: OAuth uses local files');
+}
+
 // Settings handlers
 ipcMain.handle('get-settings', async () => {
   try {

@@ -19,15 +19,29 @@ console.log('   CREDENTIALS_PATH:', CREDENTIALS_PATH);
 console.log('   TOKEN_PATH:', TOKEN_PATH);
 
 // Load credentials
+// Load credentials
 async function loadCredentials() {
-  try {
-    const content = await fs.readFile(CREDENTIALS_PATH, 'utf8');
-    return JSON.parse(content);
-  } catch (error) {
-    console.error(`[ERR] oauth_credentials.json not found at: ${CREDENTIALS_PATH}`);
-    console.error('[INFO] Follow the guide in OAUTH_SETUP.md to create the file');
-    throw new Error(`oauth_credentials.json not found at: ${CREDENTIALS_PATH}. Please ensure the file exists at this location.`);
+  const possiblePaths = [
+    CREDENTIALS_PATH, // המיקום הרגיל (userData)
+    path.join(process.resourcesPath || '', 'oauth_credentials.json'), // בresources
+    path.join(__dirname, 'oauth_credentials.json') // בתיקיית הקוד (dev)
+  ];
+
+  for (const credPath of possiblePaths) {
+    if (!credPath) continue;
+    try {
+      const content = await fs.readFile(credPath, 'utf8');
+      console.log(`✅ Loaded OAuth credentials from: ${credPath}`);
+      return JSON.parse(content);
+    } catch {
+      // Try next path
+    }
   }
+
+  // None found
+  console.error(`❌ OAuth credentials not found in any of:`);
+  possiblePaths.forEach(p => console.error(`   - ${p}`));
+  throw new Error('OAuth credentials file not found. Please add via Settings.');
 }
 
 // יצירת OAuth2 Client

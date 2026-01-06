@@ -48,4 +48,4 @@ nsis:
 publish:
   provider: github
   owner: JustArandomGuyFromTheInternet
-  repo: Web-Scraper
+  repo: web-scraper-releases
