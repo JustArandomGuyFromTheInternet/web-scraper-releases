@@ -21,27 +21,34 @@ function getCredentialsPath() {
 // Load credentials
 // Load credentials
 async function loadCredentials() {
-  const currentCredsPath = getCredentialsPath();
-  const possiblePaths = [
-    currentCredsPath,
-    path.join(process.resourcesPath || '', 'oauth_credentials.json'),
-    path.join(__dirname, 'oauth_credentials.json')
-  ];
+  const userDataPath = process.env.USER_DATA_PATH || (process.env.APPDATA ? path.join(process.env.APPDATA, 'web-scraper') : null);
 
-  console.log('[INFO] Attempting to load credentials from paths:', possiblePaths.filter(p => !!p));
+  const possiblePaths = [
+    process.env.OAUTH_CREDENTIALS_PATH,
+    path.join(userDataPath || '', 'oauth_credentials.json'),
+    path.join(process.resourcesPath || '', 'oauth_credentials.json'),
+    path.join(process.cwd(), 'oauth_credentials.json'),
+    path.join(__dirname, 'oauth_credentials.json'),
+    path.join(__dirname, '..', 'oauth_credentials.json')
+  ].filter(p => p && p.length > 5);
+
+  console.log('[OAuth] Systematic scan of paths:', possiblePaths);
 
   for (const credPath of possiblePaths) {
-    if (!credPath) continue;
     try {
+      // Using fsSync.existsSync for speed, then async read
       const content = await fs.readFile(credPath, 'utf8');
-      console.log(`✅ Loaded OAuth credentials from: ${credPath}`);
+      console.log(`[OAuth] FOUND AND LOADED: ${credPath}`);
       return JSON.parse(content);
-    } catch {
-      // Try next path
+    } catch (e) {
+      // Log skipping for diagnostics
+      console.log(`[OAuth] Not at: ${credPath}`);
     }
   }
 
-  throw new Error('OAuth credentials file not found. Please ensure oauth_credentials.json exists in your AppData folder.');
+  throw new Error(`OAuth credentials file not found.
+Please place "oauth_credentials.json" in: ${userDataPath || 'AppData'}
+Paths checked: ${possiblePaths.join(' | ')}`);
 }
 
 // יצירת OAuth2 Client

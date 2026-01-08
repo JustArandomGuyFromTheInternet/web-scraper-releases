@@ -483,6 +483,7 @@ app.whenReady().then(async () => {
     }
     process.env.OAUTH_CREDENTIALS_PATH = targetPath;
     process.env.GOOGLE_TOKEN_PATH = path.join(userDataPath, 'token.json');
+    process.env.USER_DATA_PATH = userDataPath;
   } else {
     process.env.OAUTH_CREDENTIALS_PATH = path.join(__dirname, 'oauth_credentials.json');
     process.env.GOOGLE_TOKEN_PATH = path.join(__dirname, 'token.json');
