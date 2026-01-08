@@ -285,7 +285,24 @@ const app = {
                 console.log('⚙️ Settings clicked');
                 if (settingsModal) settingsModal.style.display = 'flex';
 
-                // Load current settings
+                const uploadCredentialsBtn = document.getElementById('uploadCredentialsBtn');
+                if (uploadCredentialsBtn) {
+                    uploadCredentialsBtn.addEventListener('click', async () => {
+                        try {
+                            const result = await window.electronAPI.loadOAuthCredentials();
+                            if (result.success) {
+                                this.addLog('success', `[OK] OAuth credentials loaded successfully from: ${result.path}`);
+                                // Optional: trigger re-auth or connectivity check
+                            }
+                        } catch (e) {
+                            if (e.message !== 'Canceled') {
+                                this.addLog('error', `[ERR] Failed to load credentials: ${e.message}`);
+                            }
+                        }
+                    });
+                }
+
+                // 3. Destincation settings
                 if (window.electronAPI && window.electronAPI.getSettings) {
                     try {
                         const settings = await window.electronAPI.getSettings();
