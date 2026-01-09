@@ -15,6 +15,44 @@ npm run build
 # Output: Web Scraper Setup 1.0.0.exe
 ```
 
+## Optional: Bundle Node.js with the Installer
+
+By default, the app uses system Node.js. To include Node.js in the installer:
+
+### Step 1: Download Node.js Portable Version
+
+1. Go to https://nodejs.org/
+2. Download the **Windows Binary (.zip)** for your architecture (x64 recommended)
+3. Extract to a folder named `bundled-node` in the project root
+
+```
+bundled-node/
+├── node.exe
+├── npm
+├── node.lib
+└── ...other Node.js files
+```
+
+### Step 2: Uncomment the Build Configuration
+
+Edit `electron-builder.yml` and uncomment the bundled-node lines:
+
+```yaml
+extraResources:
+  - from: bundled-node/node.exe
+    to: node/node.exe
+```
+
+### Step 3: Build
+
+```bash
+npm run build
+```
+
+The installer will now include Node.js, so users don't need to install it separately!
+
+**Note**: Including Node.js increases installer size from ~95 MB to ~180 MB.
+
 ## Build Process Details
 
 The build process:
@@ -24,7 +62,7 @@ The build process:
 4. Generates update metadata (latest.yml)
 
 **Expected build time**: 2-3 minutes  
-**Installer size**: ~95 MB
+**Installer size**: ~95 MB (or ~180 MB with bundled Node.js)
 
 ## Build Output
 
@@ -48,6 +86,9 @@ Latest commit includes:
 - Switched from CSV to Excel (.xlsx) format
 - Added `xlsx` package dependency
 - Removed CSV-related code
+- **NEW**: Auto-close Chrome before scraping
+- **NEW**: Support for bundled Node.js
+````
 - Updated UI and documentation
 - All syntax validated with `node --check`
 

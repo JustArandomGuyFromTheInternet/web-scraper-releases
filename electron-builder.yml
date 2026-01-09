@@ -31,6 +31,10 @@ extraResources:
     filter: ["**/*"]
   - from: ICON-modified.png
     to: ICON-modified.png
+  # Optional: Include bundled Node.js if available
+  # Uncomment these lines if you have a node directory ready
+  # - from: bundled-node/node.exe
+  #   to: node/node.exe
 
 win:
   target:

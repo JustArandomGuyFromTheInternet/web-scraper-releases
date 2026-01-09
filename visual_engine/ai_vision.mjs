@@ -9,10 +9,8 @@ dotenv.config({ override: false });
 function getClient() {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-        console.error('[ERR] GEMINI_API_KEY not found!');
         return null;
     }
-    console.log(`[OK] Using API key: ${apiKey.substring(0, 15)}...`);
     return new GoogleGenAI({ apiKey });
 }
 
@@ -22,12 +20,10 @@ async function callGeminiWithRetry(client, prompt, maxRetries = 3) {
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
         try {
-            console.log(`[Gemini] Attempt ${attempt + 1}/${maxRetries}`);
             const response = await client.models.generateContent({
                 model: 'models/gemini-2.0-flash-001',
                 contents: prompt
             });
-            console.log('[OK] Gemini call succeeded');
             return response;
         } catch (error) {
             const is429 = error.status === 429 || error.message?.includes('429') || error.message?.includes('quota');
@@ -54,8 +50,6 @@ export async function analyzePostImage(imagePath, puppeteerStats = null) {
         if (!client) {
             throw new Error('[ERR] Gemini API not initialized. Set GEMINI_API_KEY.');
         }
-
-        console.log(`👁️ Analyzing: ${imagePath}`);
 
         const imageBuffer = await fs.readFile(imagePath);
         const imageBase64 = imageBuffer.toString('base64');
@@ -87,14 +81,15 @@ export async function analyzePostImage(imagePath, puppeteerStats = null) {
                - Only count if you see "X comments" text or actual comment bubbles.
                - If no comment count text is visible, return 0.
             6. **shares**: Number of shares.
-            7. **content**: Full text.
+            7. **content**: Extract the full visible text content. MAX 500 characters. If longer, truncate with "..." at end.
             8. **summary**: 1-2 sentences in HEBREW.
             ${validationContext}
 
             **ENCODING RULES**:
             - Return RAW UTF-8 Hebrew.
+            - Ensure all JSON fields are properly closed with quotes.
 
-            Return ONLY valid JSON:
+            Return ONLY valid JSON (no markdown, no code blocks):
             {
               "sender_name": "string",
               "group_name": "string",
@@ -102,7 +97,7 @@ export async function analyzePostImage(imagePath, puppeteerStats = null) {
               "likes": number,
               "comments": number,
               "shares": number,
-              "content": "string",
+              "content": "string (max 500 chars)",
               "summary": "string"${puppeteerStats ? ',\n              "validation": "string"' : ''}
             }`
         }, {
@@ -127,11 +122,6 @@ export async function analyzePostImage(imagePath, puppeteerStats = null) {
 
         let jsonStr = response.text.trim();
 
-        // DEBUG
-        console.log('=== RAW GEMINI ===');
-        console.log(jsonStr.substring(0, 500));
-        console.log('==================');
-
         // Pre-process to fix common Gemini issues
         jsonStr = jsonStr
             .replace(/^\uFEFF/, '')           // Remove BOM
@@ -150,27 +140,44 @@ export async function analyzePostImage(imagePath, puppeteerStats = null) {
             console.log('✅ JSON parsed successfully (direct)');
 
         } catch (parseError) {
-            console.warn('⚠️ Direct parse failed, trying fixes...');
-
             try {
                 // Second attempt: Fix double-escaped backslashes
                 const fixedJson = jsonStr.replace(/\\\\u([0-9a-fA-F]{4})/g, '\\u$1');
                 data = JSON.parse(fixedJson);
-                console.log('✅ JSON parsed after fixing double-escapes');
 
             } catch (secondError) {
-                // Last resort: Extract JSON with regex
-                const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
-                if (jsonMatch) {
+                // Third attempt: If incomplete, try to fix truncated JSON
+                try {
+                    let repairedJson = jsonStr;
+
+                    // Count opening and closing braces
+                    const openBraces = (repairedJson.match(/\{/g) || []).length;
+                    const closeBraces = (repairedJson.match(/\}/g) || []).length;
+
+                    // If missing closing braces, add them
+                    if (openBraces > closeBraces) {
+                        repairedJson += '}'.repeat(openBraces - closeBraces);
+                    }
+
+                    // If truncated string at the end (missing closing quote), close it
+                    if (repairedJson.match(/,\s*"[^"]*:\s*"[^"]*$/) || repairedJson.match(/:\s*"[^"]*$/)) {
+                        repairedJson = repairedJson.replace(/("(?:\\.|[^"\\])*)(}?)$/, '$1"$2');
+                    }
+
+                    data = JSON.parse(repairedJson);
+
+                } catch (repairError) {
+                    // Last resort: Extract JSON with non-greedy regex
+                    const jsonMatch = jsonStr.match(/\{(?:[^{}]|(?:\{[^{}]*\}))*\}/);
+                    if (!jsonMatch) {
+                        throw new Error(`No JSON found: ${jsonStr.substring(0, 200)}`);
+                    }
+
                     try {
                         data = JSON.parse(jsonMatch[0]);
-                        console.log('✅ JSON extracted via regex');
                     } catch (regexError) {
-                        console.error('❌ All parse attempts failed');
                         throw new Error(`Invalid JSON: ${jsonStr.substring(0, 200)}`);
                     }
-                } else {
-                    throw new Error(`No JSON found: ${jsonStr.substring(0, 200)}`);
                 }
             }
         }
@@ -229,18 +236,27 @@ export async function analyzePostImage(imagePath, puppeteerStats = null) {
         data.summary = forceDecodeIfNeeded(data.summary);
         data.content = forceDecodeIfNeeded(data.content);
 
-        // DEBUG: Log decoded values
-        console.log('=== DECODED VALUES ===');
-        console.log('sender_name:', data.sender_name);
-        console.log('group_name:', data.group_name);
-        console.log('summary:', data.summary?.substring(0, 50));
-        console.log('======================');
-
-        console.log('✅ AI Analysis complete');
         return data;
 
     } catch (error) {
-        console.error('❌ AI Vision Error:', error);
+        console.error('❌ AI Vision Error:', error.message);
+
+        // Fallback: Return Puppeteer data if AI completely fails
+        if (puppeteerStats) {
+            console.log('[WARN] Returning Puppeteer data as fallback...');
+            return {
+                sender_name: puppeteerStats.sender || 'Unknown',
+                group_name: puppeteerStats.groupName || '',
+                post_date: puppeteerStats.postDate || '',
+                likes: puppeteerStats.likes || 0,
+                comments: puppeteerStats.comments || 0,
+                shares: puppeteerStats.shares || 0,
+                content: '[AI Analysis Failed]',
+                summary: '[ניתוח AI נכשל]',
+                validation: 'AI Failed - Using Puppeteer Data'
+            };
+        }
+
         throw error;
     }
 }

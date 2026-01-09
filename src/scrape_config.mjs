@@ -5,15 +5,22 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const username = os.userInfo().username;
-const defaultUserDataDir = process.env.USER_DATA_DIR || 
-  (process.platform === 'win32'
-    ? path.join(process.cwd(), 'chrome-profile')
-    : path.join(process.cwd(), 'chrome-profile'));
+
+// 🔐 Use your ACTUAL Chrome profile where you're logged in
+// We prioritize the profile used by the Electron app (chrome-profile inside userData)
+const electronUserDataDir = process.env.ELECTRON_USER_DATA_DIR || process.env.USER_DATA_PATH;
+const defaultUserDataDir = electronUserDataDir
+  ? path.join(electronUserDataDir, 'chrome-profile')
+  : (process.env.USER_DATA_DIR ||
+    (process.platform === 'win32'
+      ? path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'User Data')
+      : path.join(process.env.HOME || '', '.config', 'google-chrome')));
 
 // Chrome executable - use env var or find it dynamically
 export const CHROME_EXE = process.env.CHROME_EXE || findChrome();
@@ -26,17 +33,17 @@ function findChrome() {
     path.join(process.env.ProgramFiles || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
     path.join(process.env['ProgramFiles(x86)'] || '', 'Google', 'Chrome', 'Application', 'chrome.exe')
   ];
-  
+
   for (const chromePath of possiblePaths) {
     try {
-      if (chromePath && require('fs').existsSync(chromePath)) {
+      if (chromePath && fs.existsSync(chromePath)) {
         return chromePath;
       }
     } catch (e) {
       // Skip
     }
   }
-  
+
   return "chrome"; // Fallback to system PATH
 }
 
@@ -58,7 +65,7 @@ export const SERVICE_ACCOUNT_KEY_PATH = "service_account_key.json";
 
 // פרומפט בסיס לסיכום — מוסיף הקשר, והקריאה בפועל דורשת JSON קשיח
 export const SUMMARY_PROMPT = ({ name, url, rawText }) =>
-    `
+  `
 נתח/י את הפוסט הבא וחזר/י JSON בפורמט הבא בדיוק:
 {
   "group_name": "שם הקבוצה או העמוד בפייסבוק (אם נמצא, אחרת ריק)",

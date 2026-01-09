@@ -7,10 +7,12 @@ Web Scraper is a powerful desktop application for extracting and analyzing conte
 - 🔍 **Multi-Platform Scraping**: Facebook, Instagram, TikTok support
 - 🤖 **AI-Powered Analysis**: Uses Google Gemini AI for content extraction
 - 📊 **Google Sheets Integration**: Direct export to spreadsheets
-- � **Excel Export**: Native .xlsx format with full Unicode support
-- �🔄 **Automatic Updates**: Stay up-to-date with the latest features
+- 📊 **Excel Export**: Native .xlsx format with full Unicode support
+- 🔄 **Automatic Updates**: Stay up-to-date with the latest features
 - 🖼️ **Visual Capture**: Screenshots with intelligent optimization
+- ✨ **Auto-Close Browser**: Chrome closes automatically before scraping
 - 🔧 **Data Repair Tools**: Fix missing information automatically
+- 📦 **Optional Node.js Bundling**: Include Node.js with installer (optional)
 
 ## Installation
 
@@ -53,9 +55,18 @@ npm run build
 
 1. **Add Links**: Paste social media URLs (one per line)
 2. **Choose Destination**: Select Excel file (.xlsx) or Google Sheets
-3. **Start Scraping**: Click "START SCRAPING" button
-4. **Monitor Progress**: View real-time logs in the Activity Log
-5. **Open Results**: Excel file opens automatically with full Unicode support for Hebrew and other languages
+3. **Click "Open Browser"**: Login to Facebook/Instagram
+   - Opens Chrome with the app's isolated profile
+   - Login credentials are saved locally
+4. **Start Scraping**: Click "START SCRAPING" button
+   - ✨ Chrome automatically closes
+   - No prompt or confirmation needed - just click and go!
+   - Waits 5 seconds for file locks to release
+   - Launches with your saved login session
+5. **Monitor Progress**: View real-time logs in the Activity Log
+6. **Open Results**: Excel file opens automatically with full Unicode support for Hebrew and other languages
+
+**Pro Tip**: The app handles everything automatically. Just click "START SCRAPING" and let it do the work!
 
 ## Output Format
 
@@ -125,4 +136,4 @@ MIT License - see LICENSE file for details
 For issues and questions, please create an issue on [GitHub](https://github.com/JustArandomGuyFromTheInternet/Web-Scraper/issues).
 
 ## Version
-Current version: 1.0.0
+Current version: 1.0.1

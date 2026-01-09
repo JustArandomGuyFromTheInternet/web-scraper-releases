@@ -3,11 +3,6 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
-import os from 'os';
-
-// 🤐 SILENCE ALL DEPRECATION WARNINGS (including Punycode)
-process.env.NODE_NO_WARNINGS = '1';
-process.removeAllListeners('warning');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -49,6 +44,7 @@ class FileCleanupQueue {
             for (let attempt = 0; attempt < 3; attempt++) {
                 try {
                     await fs.unlink(filePath);
+                    log(`Cleanup: ${filePath}`, 'debug');
                     break;
                 } catch (e) {
                     if (attempt < 2) await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
@@ -61,7 +57,7 @@ class FileCleanupQueue {
 const cleanupQueue = new FileCleanupQueue();
 
 export async function main() {
-    log('Initializing system...', 'info');
+    log('Initializing scraper...', 'info');
 
     // Stop mechanism
     let shouldStop = false;
@@ -72,7 +68,7 @@ export async function main() {
     try {
         await ensureOutFiles();
     } catch (e) {
-        log(`Output setup failed: ${e.message} `, 'error');
+        log(`Output setup failed: ${e.message}`, 'error');
         throw e; // Don't kill process immediately
     }
 
@@ -93,7 +89,7 @@ export async function main() {
         }
 
     } catch (e) {
-        log(`Cannot read links file: ${e.message} `, 'error');
+        log(`Cannot read links file: ${e.message}`, 'error');
         throw e;
     }
 
@@ -105,10 +101,10 @@ export async function main() {
     let browser;
     try {
         // Silently launch browser in headless mode
-        log('Starting automated browser...', 'info');
+        log('Initializing browser...', 'info');
         browser = await launchBrowser();
     } catch (e) {
-        log(`Browser launch failed: ${e.message} `, 'error');
+        log(`Browser launch failed: ${e.message}`, 'error');
         throw e;
     }
 
@@ -155,7 +151,7 @@ export async function main() {
 
             // STORY HANDLING (Visual Mode)
             if (isStory && IS_VISUAL_MODE) {
-                log('Story detected - extracting...', 'debug', { indent: true });
+                log('Story found - extracting...', 'info', { indent: true });
 
                 let senderName = name || "Unknown";
                 try {
@@ -186,7 +182,7 @@ export async function main() {
 
             // REEL HANDLING (Visual Mode) - Screenshot with AI for date extraction
             if (isReel && IS_VISUAL_MODE) {
-                log('Reel detected - analyzing...', 'info', { indent: true });
+                log('Reel found - analyzing with AI...', 'info', { indent: true });
 
                 let page;
                 try {
@@ -248,7 +244,7 @@ export async function main() {
                     await appendJsonl({ ts, name, date, url, ok: true, ai: payload, metadata: statsMetadata, reel: true, screenshot: optimizedPath });
                     succeeded.push({ name, date, url });
                 } catch (e) {
-                    log(`Failed to analyze reel: ${e.message} `, 'error');
+                    log(`Failed to analyze reel: ${e.message}`, 'error');
                     failed.push({ name, date, url, error: e.message });
                 } finally {
                     if (page) await page.close();
@@ -268,8 +264,6 @@ export async function main() {
                     const visualEngine = await getVisualEngine();
                     const { analyzePostImage, optimizeImage } = visualEngine;
 
-                    log('Analyzing post with AI...', 'info', { indent: true });
-
                     // Screenshot
                     const screenshotsDir = process.env.SCREENSHOTS_DIR || path.join(process.cwd(), 'visual_engine', 'screen_shots');
                     await fs.mkdir(screenshotsDir, { recursive: true });
@@ -284,7 +278,7 @@ export async function main() {
                         const module = await import('../visual_engine/screenshot.mjs');
                         capturePostScreenshot = module.capturePostScreenshot;
                     } catch (e) {
-                        log(`Failed to import screenshot module: ${e.message} `, 'error');
+                        log(`Failed to import screenshot module: ${e.message}`, 'error');
                         throw e;
                     }
                     await capturePostScreenshot(page, screenshotPath);
@@ -294,33 +288,40 @@ export async function main() {
                     // Puppeteer Stats
                     let statsMetadata = { likes: 0, comments: 0, groupName: '', postDate: '' };
                     if (url.includes('facebook.com')) {
-                        log('Extracting Facebook metadata...', 'debug');
+                        log('Starting Facebook metadata extraction...', 'info');
                         try {
                             const fbMeta = await extractFacebookMetadata(page);
                             if (fbMeta) Object.assign(statsMetadata, fbMeta);
+                            log('Facebook metadata extraction completed', 'success');
                         } catch (err) {
-                            log(`Facebook metadata extraction failed: ${err.message} `, 'debug');
+                            log(`Facebook metadata extraction failed: ${err.message}`, 'error');
                             // DON'T throw - continue with empty metadata
+                            console.warn('ΓÜá∩╕Å Continuing without Facebook metadata');
                         }
                     } else if (isTikTok) {
-                        log('Extracting TikTok metadata...', 'debug');
+                        log('Starting TikTok metadata extraction...', 'info');
                         try {
                             const ttMeta = await extractTikTokMetadata(page);
                             if (ttMeta) Object.assign(statsMetadata, ttMeta);
+                            log('TikTok metadata extraction completed', 'success');
                         } catch (err) {
-                            log(`TikTok metadata extraction failed: ${err.message} `, 'debug');
+                            log(`TikTok metadata extraction failed: ${err.message}`, 'error');
                             throw err;
                         }
                     }
 
                     // AI Analysis (pass shares from Puppeteer for validation)
-                    log('Analyzing image with Gemini...', 'debug');
+                    log('Starting AI analysis...', 'info');
                     let aiData = null;
                     try {
                         aiData = await analyzePostImage(optimizedPath, statsMetadata);
-                        log('AI analysis completed', 'debug');
+                        log('AI analysis completed', 'success');
+                        console.log('--- DEBUG ENCODING ---');
+                        console.log('AI Group Name:', aiData.group_name);
+                        console.log('Puppeteer Group Name:', statsMetadata.groupName);
+                        console.log('----------------------');
                     } catch (err) {
-                        log(`[WARN] AI analysis failed: ${err.message} `, 'warning');
+                        log(`[WARN] AI analysis failed: ${err.message}`, 'warning');
                         log('[INFO] Continuing with Puppeteer data only (no AI validation)', 'info');
                         // Don't throw - continue with what we have from Puppeteer
                         aiData = {
@@ -376,6 +377,7 @@ export async function main() {
                     // Cleanup: Delete the huge original screenshot (via queue, non-blocking)
                     if (screenshotPath !== optimizedPath) {
                         await cleanupQueue.add(screenshotPath);
+                        log('Screenshot queued for cleanup', 'debug');
                     }
 
                 } else {
@@ -384,7 +386,7 @@ export async function main() {
                 }
 
             } catch (error) {
-                log(`Error processing ${url}: ${error.message} `, 'error');
+                log(`Error processing ${url}: ${error.message}`, 'error');
                 failed.push({ name, date, url, error: error.message });
             } finally {
                 if (page) await page.close();
@@ -398,25 +400,28 @@ export async function main() {
             }
         }
     } catch (loopError) {
-        log(`Fatal error in scraping loop: ${loopError.message} `, 'error');
+        log(`Fatal error in scraping loop: ${loopError.message}`, 'error');
         throw loopError;
     } finally {
         // 4. Cleanup - Always close browser
         if (browser) {
             try {
                 await browser.close();
+                console.log('[OK] Browser closed');
             } catch (e) {
+                console.error(`[WARN] Error closing browser: ${e.message}`);
             }
         }
     }
 
-    log(`Process completed.Success: ${succeeded.length}, Failed: ${failed.length} `, 'success');
+    log(`Scrape completed. Succeeded: ${succeeded.length}, Failed: ${failed.length}`, 'success');
+    console.log(`Γ£à SCRAPE COMPLETED - Succeeded: ${succeeded.length}, Failed: ${failed.length}`);
 }
 
 // Always run main when executed
 main().catch(err => {
     console.error('Γ¥î Fatal error in main():', err.message);
     console.error('Stack trace:', err.stack);
-    log(`Fatal error: ${err.message} `, 'error');
+    log(`Fatal error: ${err.message}`, 'error');
     // Don't call process.exit - let Electron handle it
 });

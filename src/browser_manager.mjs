@@ -1,7 +1,9 @@
 // src/browser_manager.mjs
 import puppeteer from 'puppeteer';
 import fs from 'fs/promises';
+import path from 'path';
 import { log } from './logger.mjs';
+import { injectCookiesIntoPuppeteer } from './cookie_sync.mjs';
 
 // Lazy load config on first use
 let CHROME_EXE, USER_DATA_DIR, PROFILE_DIR;
@@ -22,59 +24,46 @@ export async function launchBrowser() {
     await loadConfig();
     log('Launching browser...', 'info');
 
+    // 🔍 DEBUG: Log exactly what paths we're using
+    log(`🔍 DEEP DEBUG: Chrome configuration:`, 'debug');
+    log(`   CHROME_EXE: ${CHROME_EXE}`, 'debug');
+    log(`   USER_DATA_DIR: ${USER_DATA_DIR}`, 'debug');
+    log(`   PROFILE_DIR: ${PROFILE_DIR}`, 'debug');
+
+    // Check if system Chrome folder
+    const isSystemChromeFolder = USER_DATA_DIR && USER_DATA_DIR.includes('Google') && (USER_DATA_DIR.includes('Chrome') || USER_DATA_DIR.includes('chrome'));
+    log(`   Is SYSTEM Chrome folder? ${isSystemChromeFolder ? 'YES ✅' : 'NO ❌'}`, 'debug');
+
+    // Verify path exists
+    let pathExists = false;
+    try {
+        await fs.access(USER_DATA_DIR);
+        pathExists = true;
+        log(`   Path ACCESSIBLE ✅: ${USER_DATA_DIR}`, 'debug');
+    } catch (e) {
+        log(`   Path NOT accessible ❌: ${USER_DATA_DIR}`, 'debug');
+    }
+
+    // ⚠️  If Chrome might be running, wait a moment for locks to release
+    if (isSystemChromeFolder) {
+        log(`\n⏳ Waiting 2 seconds for any Chrome processes to release file locks...`, 'info');
+        await new Promise(r => setTimeout(r, 2000));
+    }
+
     // Try multiple launch strategies
     const strategies = [
-        // Strategy 1: With userDataDir + profile + system Chrome (PRIORITY - keeps Facebook login!)
+        // Strategy 1: Use your ACTUAL Chrome profile with your login session
         async () => {
-            if (!USER_DATA_DIR || USER_DATA_DIR.trim() === '') {
-                throw new Error('No user data dir configured');
-            }
+            log(`Strategy 1: Launching Puppeteer with your Chrome session...`, 'debug');
+            log(`   📍 Profile: ${USER_DATA_DIR}`, 'debug');
 
-            log(`Using USER_DATA_DIR: ${USER_DATA_DIR}`, 'info');
-            log(`Using PROFILE_DIR: ${PROFILE_DIR}`, 'info');
-            
+            // Ensure profile folder exists
             await fs.mkdir(USER_DATA_DIR, { recursive: true });
 
             const opts = {
                 headless: true,
-                userDataDir: USER_DATA_DIR,
-                args: [
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-accelerated-2d-canvas',
-                    '--disable-gpu',
-                    '--force-device-scale-factor=0.85',  // 🎯 zoom out 85%
-                    '--disable-sync',  // Disable Chrome sync to avoid conflicts
-                    '--disable-breakpad',  // Disable crash reporting
-                ]
-            };
-
-            // Add profile directory if configured
-            if (PROFILE_DIR && PROFILE_DIR.trim() !== '') {
-                opts.args.push(`--profile-directory=${PROFILE_DIR}`);
-            }
-
-            // Add Chrome executable if configured AND exists
-            if (CHROME_EXE && CHROME_EXE.trim() !== '' && CHROME_EXE !== 'chrome') {
-                try {
-                    await fs.access(CHROME_EXE);
-                    opts.executablePath = CHROME_EXE;
-                    log(`Using system Chrome at: ${CHROME_EXE}`, 'success');
-                } catch {
-                    log(`Chrome not accessible at: ${CHROME_EXE}`, 'warning');
-                    log('Will continue without explicit path...', 'info');
-                }
-            }
-
-            return await puppeteer.launch(opts);
-        },
-
-        // Strategy 2: Simple launch with Puppeteer defaults (no profile, no explicit Chrome)
-        async () => {
-            log('Trying Puppeteer with defaults (no profile)...', 'info');
-            const opts = {
-                headless: true,
+                userDataDir: USER_DATA_DIR,  // Use your actual Chrome folder with login
+                timeout: 60000,  // 60 second timeout for launch
                 args: [
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
@@ -82,45 +71,68 @@ export async function launchBrowser() {
                     '--disable-accelerated-2d-canvas',
                     '--disable-gpu',
                     '--force-device-scale-factor=0.85',
-                    '--disable-sync',  // Disable Chrome sync to avoid conflicts
-                    '--disable-breakpad',  // Disable crash reporting
+                    '--disable-sync',  // Disable sync to prevent conflicts during scraping
+                    '--disable-breakpad',
+                    '--disable-renderer-backgrounding',
+                    '--disable-backgrounding-timer-throttling',
+                    `--profile-directory=${PROFILE_DIR || 'Default'}`,
                 ]
             };
 
-            // Also try to use system Chrome here
+            // Use Chrome executable if it exists
             if (CHROME_EXE && CHROME_EXE.trim() !== '' && CHROME_EXE !== 'chrome') {
                 try {
                     await fs.access(CHROME_EXE);
                     opts.executablePath = CHROME_EXE;
-                    log(`Using system Chrome at: ${CHROME_EXE}`, 'success');
+                    log(`   Using Chrome executable: ${CHROME_EXE}`, 'debug');
                 } catch (e) {
-                    log(`Chrome not accessible: ${e.message}`, 'warning');
+                    log(`   Chrome path not accessible, will try auto-detect`, 'warning');
                 }
             }
 
-            return await puppeteer.launch(opts);
+            log(`   Launching Puppeteer (timeout: 60 seconds)...`, 'debug');
+
+            try {
+                const browser = await puppeteer.launch(opts);
+                log(`   ✅ Browser launched with your login session!`, 'success');
+                return browser;
+            } catch (launchError) {
+                log(`   ❌ Launch failed: ${launchError.message}`, 'error');
+
+                // Check if Chrome is in use
+                if (launchError.message.includes('PROFILE_IN_USE') ||
+                    launchError.message.includes('already in use') ||
+                    launchError.message.includes('Failed to launch')) {
+                    log(`\n   🔴 CHROME IS STILL RUNNING! 🔴`, 'error');
+                    log(`   `, 'error');
+                    log(`   You must CLOSE Chrome completely before running the scraper:`, 'error');
+                    log(`   1. Close all Chrome windows`, 'error');
+                    log(`   2. Wait 2-3 seconds`, 'error');
+                    log(`   3. Try running the scraper again`, 'error');
+                    log(`   `, 'error');
+                    log(`   💡 TIP: If Chrome won't close, try: taskkill /F /IM chrome.exe`, 'warning');
+                }
+
+                throw launchError;
+            }
         }
     ];
 
     let lastError = null;
     for (let i = 0; i < strategies.length; i++) {
         try {
-            log(`Trying launch strategy ${i + 1}/${strategies.length}...`, 'info');
             const browser = await strategies[i]();
-            log(`Browser launched successfully (strategy ${i + 1}) with 85% zoom`, 'success');
+            log(`\n✅✅✅ Browser launched successfully with your login!`, 'success');
             return browser;
         } catch (error) {
             lastError = error;
-            log(`Strategy ${i + 1} failed: ${error.message}`, 'warning');
-            if (i < strategies.length - 1) {
-                log('Trying next strategy...', 'info');
-            }
+            log(`\n❌ Strategy ${i + 1} failed: ${error.message}`, 'error');
         }
     }
 
-    // All strategies failed
-    log(`All launch strategies failed. Last error: ${lastError?.message}`, 'error');
-    throw new Error(`Failed to launch browser after ${strategies.length} attempts. Last error: ${lastError?.message || 'Unknown error'}`);
+    log(`Failed to launch browser: ${lastError?.message}`, 'error');
+    throw new Error(`Failed to launch browser: ${lastError?.message}`);
+    throw new Error(`Failed to launch browser: ${lastError?.message}`);
 }
 
 export async function newConfiguredPage(browser) {
@@ -156,26 +168,31 @@ export async function newConfiguredPage(browser) {
 
 export async function navigateWithRetry(browser, url, name) {
     let page = await newConfiguredPage(browser);
+
     let attempts = 0;
     const maxAttempts = 2;
 
     while (attempts < maxAttempts) {
         try {
             log(`Navigating to: ${name || url} (Attempt ${attempts + 1})`, 'info');
+
+            // Skip cookie injection - we're using the profile directly with Puppeteer's userDataDir
+            // The cookies are already available in the browser profile
+
             await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
             // 🎯 אחרי הטעינה, ודא שה-zoom מוחל
             await page.evaluate(() => {
                 document.body.style.zoom = '0.85';
             });
-            
+
             // 🔐 Wait for login indicators to appear (profile pic, name, etc.)
             // This ensures the page has fully loaded with authentication
             try {
                 await Promise.race([
-                    page.waitForSelector('[role="navigation"]', { timeout: 5000 }).catch(() => {}),
-                    page.waitForSelector('img[alt*="profile"], img[alt*="Avatar"]', { timeout: 5000 }).catch(() => {}),
-                    page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 5000 }).catch(() => {})
+                    page.waitForSelector('[role="navigation"]', { timeout: 5000 }).catch(() => { }),
+                    page.waitForSelector('img[alt*="profile"], img[alt*="Avatar"]', { timeout: 5000 }).catch(() => { }),
+                    page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 5000 }).catch(() => { })
                 ]);
             } catch (e) {
                 log('Skipping auth wait (page might not have auth elements)', 'debug');

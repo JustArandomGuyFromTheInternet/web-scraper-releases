@@ -32,17 +32,13 @@ async function loadCredentials() {
     path.join(__dirname, '..', 'oauth_credentials.json')
   ].filter(p => p && p.length > 5);
 
-  console.log('[OAuth] Systematic scan of paths:', possiblePaths);
-
   for (const credPath of possiblePaths) {
     try {
       // Using fsSync.existsSync for speed, then async read
       const content = await fs.readFile(credPath, 'utf8');
-      console.log(`[OAuth] FOUND AND LOADED: ${credPath}`);
       return JSON.parse(content);
     } catch (e) {
       // Log skipping for diagnostics
-      console.log(`[OAuth] Not at: ${credPath}`);
     }
   }
 
@@ -71,10 +67,8 @@ async function loadSavedToken(oAuth2Client) {
     const token = await fs.readFile(tokenPath, 'utf8');
     const parsedToken = JSON.parse(token);
     oAuth2Client.setCredentials(parsedToken);
-    console.log('[OK] Loaded saved token from:', tokenPath);
     return true;
   } catch (error) {
-    console.log('[INFO] No saved token found at:', tokenPath);
     return false;
   }
 }
@@ -84,7 +78,6 @@ async function saveToken(token) {
   const tokenPath = getTokenPath();
   try {
     await fs.writeFile(tokenPath, JSON.stringify(token));
-    console.log('[OK] Token saved to:', tokenPath);
   } catch (error) {
     console.error('[ERR] Failed to save token:', error.message);
     throw error;
@@ -132,12 +125,9 @@ async function authenticateUser(oAuth2Client) {
           oAuth2Client.setCredentials(tokens);
           await saveToken(tokens);
 
-          console.log('[OK] Authentication completed!');
-
           // Close server to free port 3000
           if (timeoutId) clearTimeout(timeoutId);
           server.close(() => {
-            console.log('[OK] OAuth server closed, port 3000 freed');
           });
 
           resolve(oAuth2Client);
@@ -154,15 +144,10 @@ async function authenticateUser(oAuth2Client) {
       return new Promise((resolvePort, rejectPort) => {
         server.on('error', (err) => {
           if (err.code === 'EADDRINUSE') {
-            console.log('[WARN] Port 3000 is busy, trying random port...');
             server.close();
             // Create new server on random port
             const newServer = http.createServer(server.listeners('request')[0]);
             newServer.listen(0, () => {
-              const actualPort = newServer.address().port;
-              console.log(`[OK] Server started on port ${actualPort}`);
-              // Note: This will cause redirect_uri mismatch if not 3000
-              // But authentication will still work for first-time setup
               resolvePort(newServer);
             });
           } else {
@@ -171,7 +156,6 @@ async function authenticateUser(oAuth2Client) {
         });
 
         server.listen(3000, () => {
-          console.log('[OK] OAuth server listening on port 3000');
           resolvePort(server);
         });
       });
@@ -192,7 +176,6 @@ async function authenticateUser(oAuth2Client) {
 
 // קבלת Auth Client מוכן לשימוש
 export async function getAuthenticatedClient() {
-  console.log('[INFO] getAuthenticatedClient called');
   const oAuth2Client = await createOAuth2Client();
 
   // נסה לטעון token קיים
@@ -200,10 +183,8 @@ export async function getAuthenticatedClient() {
 
   if (!hasToken) {
     // אין token - צריך להתחבר
-    console.log('[INFO] No saved token, initiating authentication...');
     await authenticateUser(oAuth2Client);
   } else {
-    console.log('[OK] Using existing token - no authentication needed');
   }
 
   return oAuth2Client;

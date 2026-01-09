@@ -5,7 +5,7 @@ This document provides a high-level architectural overview of the application fo
 ## 1. System Overview
 **Type**: Desktop Electron Application
 **Purpose**: Automated social media scraping (Facebook, Instagram, TikTok) using a "Visual-First" approach (AI Vision) combined with traditional DOM scraping.
-**Core Philosophy**: Instead of relying solely on fragile DOM selectors, the system captures screenshots of posts and uses Multimodal AI (Google Gemini 2.0) to "read" the content, validating it against DOM data.
+**Core Philosophy**: The system combines Puppeteer's high-fidelity automation with Google Gemini's multimodal AI to robustly extract content, even when DOM structures change. It uses a **Unified Browser Profile** to share state between manual sessions and automated scraping.
 
 ## 2. Technology Stack
 *   **Runtime/App Shell**: [Electron](https://www.electronjs.org/) (Node.js + Chromium).
@@ -69,5 +69,6 @@ Root
 ```
 
 ## 6. Important Workflows
-*   **Reel/Story Handling**: Specialized logic in `scrape_controller.mjs` detects Story/Reel URLs and switches extraction strategies (e.g., different selectors or full-screen capture).
-*   **Error Recovery**: `FileCleanupQueue` ensures temporary screenshots don't fill the disk. `navigateWithRetry` handles network flakes.
+- **Unified Profile Management**: Both visual and manual browsers share `userData/chrome-profile`.
+- **Production Logging**: Filtered, professional output with professional emojis (✅, ⚠️, ❌).
+- **Error Recovery**: `FileCleanupQueue` manages temporary assets; `navigateWithRetry` ensures stability.

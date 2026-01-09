@@ -1,3 +1,7 @@
+// 🤐 SILENCE ALL DEPRECATION WARNINGS (including Punycode)
+process.env.NODE_NO_WARNINGS = '1';
+process.removeAllListeners('warning');
+
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
@@ -54,15 +58,41 @@ async function getChromePath() {
   for (const chromePath of possiblePaths) {
     try {
       if (fsSync.existsSync(chromePath)) {
-        console.log(`[Chrome] Found at: ${chromePath}`);
         return chromePath;
       }
     } catch (e) {
-      // Skip invalid paths
     }
   }
 
   return null; // Chrome not found
+}
+
+// Helper function to find Node.js executable
+function getNodePath() {
+  // If we're on Windows and process.execPath looks like node.exe (e.g. in dev or or specific installers)
+  if (process.platform === 'win32' && process.execPath.toLowerCase().endsWith('node.exe')) {
+    return process.execPath;
+  }
+
+  // First, try to find bundled Node.js in the app resources
+  if (app.isPackaged) {
+    const bundledNodePaths = [
+      path.join(process.resourcesPath, 'node', 'node.exe'),
+      path.join(process.resourcesPath, 'node-win64', 'node.exe'),
+      path.join(process.resourcesPath, 'bin', 'node.exe'),
+      path.join(path.dirname(process.execPath), 'node.exe'), // Look next to executable
+    ];
+
+    for (const nodePath of bundledNodePaths) {
+      if (fsSync.existsSync(nodePath)) {
+        return nodePath;
+      }
+    }
+  }
+
+  // Fallback to system Node.js
+  console.log(`[Node] Using system Node.js (from PATH)`);
+  return 'node';
 }
 
 // 🔄 Auto-Updater Configuration
@@ -209,25 +239,61 @@ ipcMain.handle('save-settings', async (event, settings) => {
 // Scraping Process Controls
 let scrapingProcess = null;
 let repairProcess = null;
+let currentScrapingAbortController = null;
 
 ipcMain.handle('run-scrape', async (event, payload) => {
   try {
-    if (scrapingProcess) throw new Error('Scraping process already running');
+    // Prevent multiple concurrent scrapes
+    if (scrapingProcess) {
+      return { success: false, error: '⚠️ סקריפה כבר פועלת! חכה להשלמה.' };
+    }
 
     const scriptPath = getModulePath('src/scrape_controller.mjs');
     const userDataPath = app.getPath('userData');
+
+    // 🔐 IMPORTANT: Export Electron's cookies BEFORE launching scraper
+    try {
+      console.log('[Cookies] Attempting to export cookies from Electron session...');
+      const cookies = await mainWindow.webContents.session.cookies.get({});
+      const cookiesFile = path.join(userDataPath, 'electron-cookies.json');
+
+      console.log(`[Cookies] Got ${cookies.length} cookies from Electron session`);
+
+      if (cookies.length === 0) {
+        console.log('[Cookies] ⚠️ WARNING: No cookies found in Electron session!');
+        console.log('[Cookies] Possible causes:');
+        console.log('[Cookies]   1. User not logged in to Facebook/Instagram in UI');
+        console.log('[Cookies]   2. Cookies were cleared');
+        console.log('[Cookies]   3. Session isolated/private mode');
+      } else {
+        // Log cookie details
+        const fbCookies = cookies.filter(c => c.domain?.includes('facebook') || c.domain?.includes('instagram') || c.url?.includes('facebook') || c.url?.includes('instagram'));
+        console.log(`[Cookies] Found ${fbCookies.length} Facebook/Instagram cookies`);
+        fbCookies.slice(0, 3).forEach(c => {
+          console.log(`[Cookies]   - ${c.name} @ ${c.domain || c.url}`);
+        });
+      }
+
+      await fs.writeFile(cookiesFile, JSON.stringify(cookies, null, 2));
+      console.log(`[Cookies] ✅ Exported cookies to: ${cookiesFile}`);
+    } catch (e) {
+      console.log(`[Cookies] ❌ Could not export cookies: ${e.message}`);
+      console.log(e);
+    }
 
     // Prepare links.json
     const links = payload.links || payload;
     const linksData = links.map(url => ({ url, name: '', date: '' }));
     await fs.writeFile(path.join(userDataPath, 'links.json'), JSON.stringify(linksData, null, 2));
 
-    // Build environment
+    // Build environment variables for scraper
     const envVars = Object.assign({}, process.env);
     envVars.LINKS_FILE = path.join(userDataPath, 'links.json');
     envVars.SCREENSHOTS_DIR = path.join(userDataPath, 'screenshots');
     envVars.OUTPUT_DIR = payload.savePath || path.join(userDataPath, 'output');
     envVars.VISUAL_MODE = (payload.visualMode !== false) ? 'true' : 'false';
+    envVars.ELECTRON_USER_DATA_DIR = userDataPath;
+    envVars.ELECTRON_COOKIES_FILE = path.join(userDataPath, 'electron-cookies.json');
 
     if (payload.spreadsheetId) envVars.SPREADSHEET_ID = payload.spreadsheetId;
     envVars.SHEET_NAME = payload.sheetName || 'Summaries';
@@ -235,7 +301,41 @@ ipcMain.handle('run-scrape', async (event, payload) => {
     const chromeExePath = await getChromePath();
     if (chromeExePath) envVars.CHROME_EXE = chromeExePath;
 
-    scrapingProcess = spawn('node', [scriptPath], {
+    // 🔴 AUTO-CLOSE CHROME BEFORE SCRAPING
+    console.log('[Scraper] ⏹️ Closing any open Chrome windows...');
+    try {
+      if (process.platform === 'win32') {
+        // Windows: use taskkill with aggressive timeout
+        const { execSync } = require('child_process');
+
+        // Try multiple times to ensure Chrome is dead
+        for (let i = 0; i < 3; i++) {
+          try {
+            execSync('taskkill /F /IM chrome.exe 2>nul', { stdio: 'pipe' });
+          } catch (e) {
+          }
+        }
+
+        // Wait longer for processes to fully terminate and file locks to release
+        await new Promise(r => setTimeout(r, 5000));
+      } else {
+        // Mac/Linux: use killall with sleep
+        for (let i = 0; i < 3; i++) {
+          try {
+            execSync('killall -9 chrome 2>/dev/null || true', { stdio: 'pipe' });
+          } catch (e) {
+          }
+        }
+        await new Promise(r => setTimeout(r, 3000));
+      }
+    } catch (e) {
+      console.log('[Scraper] ⚠️ Error closing Chrome:', e.message);
+    }
+
+    const nodePath = getNodePath();
+    if (mainWindow) mainWindow.webContents.send('scraping-output', { type: 'info', message: 'Spawning background processes...' });
+
+    scrapingProcess = spawn(nodePath, [scriptPath], {
       env: envVars,
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd: __dirname,
@@ -244,23 +344,33 @@ ipcMain.handle('run-scrape', async (event, payload) => {
 
     scrapingProcess.stdout.on('data', (data) => {
       const message = data.toString().trim();
+      console.log('[stdout]', message);
       if (mainWindow) mainWindow.webContents.send('scraping-output', { type: 'info', message });
     });
 
     scrapingProcess.stderr.on('data', (data) => {
       const message = data.toString().trim();
+      console.log('[stderr]', message);
       if (mainWindow) mainWindow.webContents.send('scraping-output', { type: 'error', message });
     });
 
     return new Promise((resolve) => {
       scrapingProcess.on('close', (code) => {
+        console.log('[Scraper] Process closed with code:', code);
         scrapingProcess = null;
         resolve({ success: code === 0 });
       });
+
+      scrapingProcess.on('error', (err) => {
+        console.error('[Scraper] Process error:', err);
+        scrapingProcess = null;
+        log.error('Scraping process error:', err);
+        resolve({ success: false, error: err.message });
+      });
     });
   } catch (error) {
-    log.error('Scraping error:', error);
-    throw error;
+    console.error('[Scraper] Handler error:', error.message);
+    return { success: false, error: error.message };
   }
 });
 
@@ -269,6 +379,21 @@ ipcMain.on('stop-scraping', () => {
     scrapingProcess.kill();
     scrapingProcess = null;
   }
+});
+
+// Reset scraping process (in case it gets stuck)
+ipcMain.handle('reset-scraping', async () => {
+  if (scrapingProcess) {
+    try {
+      if (!scrapingProcess.killed) {
+        scrapingProcess.kill('SIGKILL');
+      }
+    } catch (e) {
+      console.log('[Reset] Error killing process:', e.message);
+    }
+    scrapingProcess = null;
+  }
+  return { success: true, message: 'Scraping process reset' };
 });
 
 // Sync to Sheets Handler
@@ -359,13 +484,21 @@ ipcMain.handle('logout-sheets', async () => {
 
 ipcMain.handle('open-browser', async () => {
   const chromeExe = await getChromePath() || "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+
+  // 🔐 Use a dedicated local profile for the UI browser
+  // Puppeteer will also use this SAME profile for scraping to ensure login state is shared
   const userDataDir = path.join(app.getPath('userData'), 'chrome-profile');
+
+  console.log(`[Browser] Opening Chrome at ${userDataDir}`);
+
   await fs.mkdir(userDataDir, { recursive: true });
   spawn(chromeExe, [
     `--user-data-dir=${userDataDir}`,
     'https://www.facebook.com',
     'https://www.instagram.com'
   ], { detached: true });
+
+  console.log(`✅ Chrome process spawned (detached)`);
   return { success: true };
 });
 
@@ -382,6 +515,8 @@ ipcMain.handle('activate-license', async (event, key) => {
 
 // Utility Handlers
 ipcMain.handle('test-api', () => 'API is working');
+ipcMain.handle('get-app-version', () => app.getVersion());
+
 ipcMain.handle('check-api-status', async () => {
   return {
     ipc: true,
