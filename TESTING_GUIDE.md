@@ -90,7 +90,7 @@ The scraper receives these critical env vars:
 ## Known Limitations
 
 1. **Chrome must be closed before scraping**: Windows file locks prevent concurrent access
-2. **Requires Node.js globally installed**: Same as v1.0.0
+2. **Requires Node.js globally installed**: Same as previous versions (user must have Node.js in PATH).
 3. **No concurrent UI/Scraper execution**: User must complete scraping before opening UI Chrome again
 
 ## Architecture Diagram
